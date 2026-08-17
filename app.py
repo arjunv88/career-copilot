@@ -608,58 +608,61 @@ if st.button(
                 )
 if "job_profile" in st.session_state:
 
-    try:
-        candidate_data = load_candidate_profile()
-        job_data = st.session_state["job_profile"]
+    candidate_data = None
 
-        cpp_result = match_engine.calculate_match(
+    try:
+        candidate_data = (
+            load_candidate_profile()
+        )
+
+    except FileNotFoundError:
+        pass
+
+    job_data = st.session_state["job_profile"]
+
+    cpp_result = match_engine.calculate_match(
         candidate_data["technical_skills"],
         job_data["required_skills"],
-        )
+    )
 
-        st.session_state["match_result"] = {
+    st.session_state["match_result"] = {
         "score": cpp_result.score,
         "matched_skills": list(
-        cpp_result.matched_skills
-    ),
+            cpp_result.matched_skills
+        ),
         "missing_skills": list(
-        cpp_result.missing_skills
-    ),
-}
+            cpp_result.missing_skills
+        ),
+    }
 
-        st.subheader("C++ Compatibility Analysis")
+    st.subheader("C++ Compatibility Analysis")
 
-        match_data = st.session_state["match_result"]
+    match_data = st.session_state["match_result"]
 
-        st.metric(
-            "Technical Match Score",
-            f"{match_data['score']:.1f}%"
-)
+    st.metric(
+        "Technical Match Score",
+        f"{match_data['score']:.1f}%"
+    )
 
-        col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2)
 
-        with col1:
-            st.success("Matched Skills")
+    with col1:
+        st.success("Matched Skills")
 
-            if match_data["matched_skills"]:
-                for skill in match_data["matched_skills"]:
-                    st.write(f"✅ {skill}")
-            else:
-                st.write("No exact skill matches found.")
+        if match_data["matched_skills"]:
+            for skill in match_data["matched_skills"]:
+                st.write(f"✅ {skill}")
+        else:
+            st.write("No exact skill matches found.")
 
-        with col2:
-            st.warning("Missing Skills")
+    with col2:
+        st.warning("Missing Skills")
 
-            if match_data["missing_skills"]:
-                for skill in match_data["missing_skills"]:
-                    st.write(f"⚠️ {skill}")
-            else:
-                st.write("No missing required skills.")
-
-    except Exception as error:
-        st.error(
-            f"The C++ compatibility analysis failed: {error}"
-        )
+        if match_data["missing_skills"]:
+            for skill in match_data["missing_skills"]:
+                st.write(f"⚠️ {skill}")
+        else:
+            st.write("No missing required skills.")
 st.divider()
 
 st.header(
