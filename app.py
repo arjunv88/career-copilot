@@ -441,7 +441,87 @@ Create a tailored CV for this job.
             "The AI did not return a valid tailored CV."
         )
 
-    return tailored_cv    
+    return tailored_cv  
+  
+def create_cover_letter(
+    candidate_data: dict,
+    job_data: dict,
+    match_data: dict,
+) -> str:
+
+    api_key = os.getenv(
+        "OPENAI_API_KEY"
+    )
+
+    if not api_key:
+        raise ValueError(
+            "OPENAI_API_KEY was not found."
+        )
+
+    client = OpenAI(
+        api_key=api_key
+    )
+
+    system_prompt = """
+You are the cover-letter generation component
+of Career Copilot.
+
+Create a concise and professional cover letter
+for the supplied job.
+
+Rules:
+
+1. Use only facts supported by the approved candidate profile.
+2. Never invent experience, skills, achievements,
+   certifications or responsibilities.
+3. Focus on the strongest genuine overlap between
+   the candidate and the job requirements.
+4. Use the compatibility analysis to identify
+   matched strengths.
+5. Do not claim missing skills.
+6. Avoid generic wording where possible.
+7. Keep the letter approximately 300–450 words.
+8. Make the tone professional and confident.
+"""
+
+    user_content = f"""
+APPROVED CANDIDATE PROFILE:
+
+{json.dumps(candidate_data, indent=2)}
+
+JOB PROFILE:
+
+{json.dumps(job_data, indent=2)}
+
+COMPATIBILITY ANALYSIS:
+
+{json.dumps(match_data, indent=2)}
+
+Write the cover letter.
+"""
+
+    response = client.responses.create(
+        model="gpt-4.1-mini",
+        input=[
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
+                "role": "user",
+                "content": user_content,
+            },
+        ],
+    )
+
+    cover_letter = response.output_text
+
+    if not cover_letter:
+        raise ValueError(
+            "No cover letter was returned."
+        )
+
+    return cover_letter
 
 st.set_page_config(
     page_title="Career Copilot",
@@ -834,3 +914,52 @@ if "tailored_cv" in st.session_state:
     st.json(
         st.session_state["tailored_cv"]
     )    
+if (
+    candidate_data is not None
+    and "job_profile" in st.session_state
+    and "match_result" in st.session_state
+):
+
+    if st.button(
+        "Generate Cover Letter"
+    ):
+
+        with st.spinner(
+            "Career Copilot is writing the cover letter..."
+        ):
+
+            try:
+
+                cover_letter = create_cover_letter(
+                    candidate_data,
+                    st.session_state["job_profile"],
+                    st.session_state["match_result"],
+                )
+
+                st.session_state["cover_letter"] = (
+                    cover_letter
+                )
+
+                st.success(
+                    "Cover letter generated successfully."
+                )
+
+            except Exception as error:
+
+                st.error(
+                    f"Cover letter generation failed: {error}"
+                )  
+                  
+if "cover_letter" in st.session_state:
+
+    st.subheader(
+        "Cover Letter"
+    )
+
+    st.text_area(
+        "Generated cover letter",
+        value=st.session_state[
+            "cover_letter"
+        ],
+        height=500,
+    )                
