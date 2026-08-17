@@ -523,6 +523,98 @@ Write the cover letter.
 
     return cover_letter
 
+def create_interview_preparation(
+    candidate_data: dict,
+    job_data: dict,
+    match_data: dict,
+) -> InterviewPreparation:
+
+    api_key = os.getenv(
+        "OPENAI_API_KEY"
+    )
+
+    if not api_key:
+        raise ValueError(
+            "OPENAI_API_KEY was not found."
+        )
+
+    client = OpenAI(
+        api_key=api_key
+    )
+
+    system_prompt = """
+You are the interview-preparation component
+of Career Copilot.
+
+Generate interview questions specifically for
+the candidate and job provided.
+
+Create:
+
+- 5 technical questions
+- 5 experience-based questions
+- 5 behavioral questions
+
+For every question provide:
+
+- the question
+- its category
+- why the interviewer may ask it
+- preparation points
+
+Important rules:
+
+1. Base questions on the actual job requirements.
+2. Use candidate experience where relevant.
+3. Pay special attention to missing skills,
+   because interviewers may probe these gaps.
+4. Do not invent experience.
+5. If a missing skill is important, explain that the
+   candidate should prepare the theory rather than
+   falsely claim experience.
+6. Keep preparation advice concise and practical.
+"""
+
+    user_content = f"""
+CANDIDATE PROFILE:
+
+{json.dumps(candidate_data, indent=2)}
+
+JOB PROFILE:
+
+{json.dumps(job_data, indent=2)}
+
+COMPATIBILITY ANALYSIS:
+
+{json.dumps(match_data, indent=2)}
+
+Generate the interview-preparation package.
+"""
+
+    response = client.responses.parse(
+        model="gpt-4.1-mini",
+        input=[
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
+                "role": "user",
+                "content": user_content,
+            },
+        ],
+        text_format=InterviewPreparation,
+    )
+
+    interview_prep = response.output_parsed
+
+    if interview_prep is None:
+        raise ValueError(
+            "The AI did not return valid interview preparation."
+        )
+
+    return interview_prep
+
 st.set_page_config(
     page_title="Career Copilot",
     page_icon="💼",
@@ -949,7 +1041,7 @@ if (
                 st.error(
                     f"Cover letter generation failed: {error}"
                 )  
-                  
+
 if "cover_letter" in st.session_state:
 
     st.subheader(
@@ -962,4 +1054,166 @@ if "cover_letter" in st.session_state:
             "cover_letter"
         ],
         height=500,
-    )                
+    )  
+
+if (
+    candidate_data is not None
+    and "job_profile" in st.session_state
+    and "match_result" in st.session_state
+):
+
+    if st.button(
+        "Generate Interview Preparation"
+    ):
+
+        with st.spinner(
+            "Career Copilot is preparing interview questions..."
+        ):
+
+            try:
+
+                interview_prep = (
+                    create_interview_preparation(
+                        candidate_data,
+                        st.session_state["job_profile"],
+                        st.session_state["match_result"],
+                    )
+                )
+
+                st.session_state[
+                    "interview_preparation"
+                ] = interview_prep.model_dump()
+
+                st.success(
+                    "Interview preparation generated successfully."
+                )
+
+            except Exception as error:
+
+                st.error(
+                    f"Interview preparation failed: {error}"
+                )
+if (
+    "interview_preparation"
+    in st.session_state
+):
+
+    prep = st.session_state[
+        "interview_preparation"
+    ]
+
+    st.subheader(
+        "Interview Preparation"
+    )
+
+    st.markdown(
+        "### Technical Questions"
+    )
+
+    for item in prep[
+        "technical_questions"
+    ]:
+
+        st.markdown(
+            f"**Question:** {item['question']}"
+        )
+
+        st.write(
+            f"Why it matters: {item['why_it_matters']}"
+        )
+
+        st.write(
+            "Preparation points:"
+        )
+
+        for point in item[
+            "preparation_points"
+        ]:
+            st.write(
+                f"- {point}"
+            )
+
+        st.divider()
+
+if (
+    "interview_preparation"
+    in st.session_state
+):
+
+    prep = st.session_state[
+        "interview_preparation"
+    ]
+
+    st.subheader(
+        "Interview Preparation"
+    )
+
+    st.markdown(
+        "### Behavioral Questions"
+    )
+
+    for item in prep[
+        "behavioral_questions"
+    ]:
+
+        st.markdown(
+            f"**Question:** {item['question']}"
+        )
+
+        st.write(
+            f"Why it matters: {item['why_it_matters']}"
+        )
+
+        st.write(
+            "Preparation points:"
+        )
+
+        for point in item[
+            "preparation_points"
+        ]:
+            st.write(
+                f"- {point}"
+            )
+
+        st.divider()   
+if (
+    "interview_preparation"
+    in st.session_state
+):
+
+    prep = st.session_state[
+        "interview_preparation"
+    ]
+
+    st.subheader(
+        "Interview Preparation"
+    )
+
+    st.markdown(
+        "### Experience Questions"
+    )
+
+    for item in prep[
+        "experience_questions"
+    ]:
+
+        st.markdown(
+            f"**Question:** {item['question']}"
+        )
+
+        st.write(
+            f"Why it matters: {item['why_it_matters']}"
+        )
+
+        st.write(
+            "Preparation points:"
+        )
+
+        for point in item[
+            "preparation_points"
+        ]:
+            st.write(
+                f"- {point}"
+            )
+
+        st.divider()                                               
