@@ -1,7 +1,10 @@
 import json
 import os
 from io import BytesIO
-
+import json
+import pandas as pd
+from pathlib import Path
+from datetime import datetime
 import match_engine
 import fitz
 import streamlit as st
@@ -813,6 +816,145 @@ def create_interview_docx(
 
     return buffer.getvalue()
 
+def save_application_record(
+    candidate_data: dict,
+    job_data: dict,
+    match_data: dict,
+    tailored_cv: dict | None = None,
+    cover_letter: str | None = None,
+    interview_prep: dict | None = None,
+    status="Prepared",
+):
+    applications_folder = Path(
+        "data/applications"
+    )
+
+    applications_folder.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    timestamp = datetime.now()
+
+    application_id = timestamp.strftime(
+        "%Y%m%d_%H%M%S"
+    )
+
+    application_record = {
+        "application_id": application_id,
+
+        "created_at": timestamp.isoformat(),
+
+        "company": job_data.get(
+            "company",
+            ""
+        ),
+
+        "job_title": job_data.get(
+            "job_title",
+            ""
+        ),
+
+        "location": job_data.get(
+            "location",
+            ""
+        ),
+
+        "match_score": match_data.get(
+            "score",
+            0
+        ),
+
+        "matched_skills": match_data.get(
+            "matched_skills",
+            []
+        ),
+
+        "missing_skills": match_data.get(
+            "missing_skills",
+            []
+        ),
+
+        "status": status,
+
+        "candidate_profile": candidate_data,
+
+        "job_profile": job_data,
+
+        "tailored_cv": tailored_cv,
+
+        "cover_letter": cover_letter,
+
+        "interview_preparation": (
+            interview_prep
+        ),
+    }
+
+    file_path = (
+        applications_folder
+        / f"{application_id}.json"
+    )
+
+    with open(
+        file_path,
+        "w",
+        encoding="utf-8",
+    ) as file:
+
+        json.dump(
+            application_record,
+            file,
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    return file_path
+
+def load_application_history():
+    applications_folder = Path(
+        "data/applications"
+    )
+
+    if not applications_folder.exists():
+        return []
+
+    applications = []
+
+    for file_path in (
+        applications_folder.glob(
+            "*.json"
+        )
+    ):
+
+        try:
+
+            with open(
+                file_path,
+                "r",
+                encoding="utf-8",
+            ) as file:
+
+                data = json.load(
+                    file
+                )
+
+                applications.append(
+                    data
+                )
+
+        except Exception:
+            continue
+
+    applications.sort(
+        key=lambda item: item.get(
+            "created_at",
+            ""
+        ),
+        reverse=True,
+    )
+
+    return applications
+
 defaults = {
     "candidate_profile": None,
     "job_profile": None,
@@ -1602,4 +1744,155 @@ with tab4:
 
             st.success(
                 "Interview preparation changes saved."
-            )    
+            )
+st.divider()
+
+st.subheader(
+    "Save Application"
+)
+
+application_status = st.selectbox(
+    "Application status",
+    [
+        "Analysed",
+        "Prepared",
+        "Applied",
+        "Interview",
+        "Rejected",
+        "Offer",
+        "Archived",
+    ]
+)
+
+if (
+    candidate_data is not None
+    and st.session_state.get(
+        "job_profile"
+    )
+    and st.session_state.get(
+        "match_result"
+    )
+):
+
+    if st.button(
+        "Save Application Record"
+    ):
+
+        try:
+
+            saved_path = (
+                save_application_record(
+                    candidate_data,
+                    st.session_state[
+                        "job_profile"
+                    ],
+                    st.session_state[
+                        "match_result"
+                    ],
+                    st.session_state.get(
+                        "tailored_cv"
+                    ),
+                    st.session_state.get(
+                        "cover_letter"
+                    ),
+                    st.session_state.get(
+                        "interview_preparation"
+                    ),
+                    application_status,
+                )
+            )
+
+            st.success(
+                "Application saved successfully."
+            )
+
+            st.write(
+                f"Saved to: {saved_path}"
+            )
+
+        except Exception as error:
+
+            st.error(
+                "The application could not be saved."
+            )
+
+            st.code(
+                str(error)
+            )
+
+st.divider()
+
+st.header(
+    "Application History"
+)    
+
+applications = (
+    load_application_history()
+)
+
+if not applications:
+
+    st.info(
+        "No saved applications yet."
+    )
+
+else:
+
+    history_rows = []
+
+    for application in applications:
+
+        history_rows.append(
+            {
+                "Company": (
+                    application.get(
+                        "company",
+                        ""
+                    )
+                ),
+
+                "Position": (
+                    application.get(
+                        "job_title",
+                        ""
+                    )
+                ),
+
+                "Location": (
+                    application.get(
+                        "location",
+                        ""
+                    )
+                ),
+
+                "Match Score": (
+                    application.get(
+                        "match_score",
+                        0
+                    )
+                ),
+
+                "Status": (
+                    application.get(
+                        "status",
+                        ""
+                    )
+                ),
+
+                "Created": (
+                    application.get(
+                        "created_at",
+                        ""
+                    )
+                ),
+            }
+        )
+
+    history_df = pd.DataFrame(
+        history_rows
+    )
+
+    st.dataframe(
+        history_df,
+        use_container_width=True,
+    )
