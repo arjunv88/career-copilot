@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from pathlib import Path
 
 
+
 load_dotenv()
 
 
@@ -615,6 +616,203 @@ Generate the interview-preparation package.
 
     return interview_prep
 
+def create_cv_docx(
+    cv_data: dict,
+) -> bytes:
+
+    document = Document()
+
+    document.add_heading(
+        cv_data["professional_title"],
+        level=0,
+    )
+
+    document.add_heading(
+        "Professional Summary",
+        level=1,
+    )
+
+    document.add_paragraph(
+        cv_data["professional_summary"]
+    )
+
+    document.add_heading(
+        "Key Skills",
+        level=1,
+    )
+
+    for skill in cv_data[
+        "prioritized_skills"
+    ]:
+        document.add_paragraph(
+            skill,
+            style="List Bullet",
+        )
+
+    document.add_heading(
+        "Professional Experience",
+        level=1,
+    )
+
+    for experience in cv_data[
+        "experience"
+    ]:
+
+        document.add_heading(
+            (
+                experience["job_title"]
+                + " — "
+                + experience["company"]
+            ),
+            level=2,
+        )
+
+        for bullet in experience[
+            "bullets"
+        ]:
+            document.add_paragraph(
+                bullet,
+                style="List Bullet",
+            )
+
+    document.add_heading(
+        "Education",
+        level=1,
+    )
+
+    for item in cv_data[
+        "education"
+    ]:
+        document.add_paragraph(
+            item,
+            style="List Bullet",
+        )
+
+    document.add_heading(
+        "Certifications",
+        level=1,
+    )
+
+    for item in cv_data[
+        "certifications"
+    ]:
+        document.add_paragraph(
+            item,
+            style="List Bullet",
+        )
+
+    buffer = BytesIO()
+
+    document.save(
+        buffer
+    )
+
+    buffer.seek(0)
+
+    return buffer.getvalue()
+
+def create_cover_letter_docx(
+    cover_letter: str,
+) -> bytes:
+
+    document = Document()
+
+    document.add_heading(
+        "Cover Letter",
+        level=0,
+    )
+
+    for paragraph in cover_letter.split(
+        "\n"
+    ):
+
+        if paragraph.strip():
+
+            document.add_paragraph(
+                paragraph.strip()
+            )
+
+    buffer = BytesIO()
+
+    document.save(
+        buffer
+    )
+
+    buffer.seek(0)
+
+    return buffer.getvalue()
+
+def create_interview_docx(
+    prep: dict,
+) -> bytes:
+
+    document = Document()
+
+    document.add_heading(
+        "Interview Preparation",
+        level=0,
+    )
+
+    sections = [
+        (
+            "Technical Questions",
+            "technical_questions",
+        ),
+        (
+            "Experience Questions",
+            "experience_questions",
+        ),
+        (
+            "Behavioral Questions",
+            "behavioral_questions",
+        ),
+    ]
+
+    for section_title, key in sections:
+
+        document.add_heading(
+            section_title,
+            level=1,
+        )
+
+        for item in prep[key]:
+
+            document.add_heading(
+                item["question"],
+                level=2,
+            )
+
+            document.add_paragraph(
+                "Why this may be asked:"
+            )
+
+            document.add_paragraph(
+                item["why_it_matters"]
+            )
+
+            document.add_paragraph(
+                "Preparation points:"
+            )
+
+            for point in item[
+                "preparation_points"
+            ]:
+
+                document.add_paragraph(
+                    point,
+                    style="List Bullet",
+                )
+
+    buffer = BytesIO()
+
+    document.save(
+        buffer
+    )
+
+    buffer.seek(0)
+
+    return buffer.getvalue()
+
 st.set_page_config(
     page_title="Career Copilot",
     page_icon="💼",
@@ -1216,4 +1414,178 @@ if (
                 f"- {point}"
             )
 
-        st.divider()                                               
+        st.divider()   
+
+tab1, tab2, tab3, tab4 = st.tabs(
+    [
+        "Compatibility",
+        "Tailored CV",
+        "Cover Letter",
+        "Interview Prep",
+    ]
+)
+
+with tab1:
+
+    if "match_result" in st.session_state:
+
+        match_data = st.session_state[
+            "match_result"
+        ]
+
+        st.metric(
+            "Technical Match Score",
+            f"{match_data['score']:.1f}%"
+        )
+with tab2:
+
+    if "tailored_cv" in st.session_state:
+
+        cv_data = st.session_state[
+            "tailored_cv"
+        ]
+
+        professional_title = (
+            st.text_input(
+                "Professional title",
+                value=cv_data[
+                    "professional_title"
+                ],
+            )
+        )
+
+        professional_summary = (
+            st.text_area(
+                "Professional summary",
+                value=cv_data[
+                    "professional_summary"
+                ],
+                height=180,
+            )
+        )
+if "tailored_cv" in st.session_state:
+
+    cv_docx = create_cv_docx(
+        st.session_state[
+            "tailored_cv"
+        ]
+    )
+
+    st.download_button(
+        label="Download Tailored CV",
+        data=cv_docx,
+        file_name="tailored_cv.docx",
+        mime=(
+            "application/"
+            "vnd.openxmlformats-officedocument."
+            "wordprocessingml.document"
+        ),
+    )         
+
+if st.button(
+    "Save CV Changes"
+):
+
+    st.session_state[
+        "tailored_cv"
+    ][
+        "professional_title"
+    ] = professional_title
+
+    st.session_state[
+        "tailored_cv"
+    ][
+        "professional_summary"
+    ] = professional_summary
+
+    st.success(
+        "CV changes saved."
+    )
+
+with tab3:
+
+    if "cover_letter" in st.session_state:
+
+        edited_cover_letter = (
+            st.text_area(
+                "Cover Letter",
+                value=st.session_state[
+                    "cover_letter"
+                ],
+                height=600,
+            )
+        )
+        cover_docx = (
+            create_cover_letter_docx(
+                st.session_state[
+                    "cover_letter"
+                ]
+            )
+        )
+
+        st.download_button(
+            "Download Cover Letter",
+            data=cover_docx,
+            file_name="cover_letter.docx",
+            mime=(
+                "application/"
+                "vnd.openxmlformats-officedocument."
+                "wordprocessingml.document"
+            ),
+        )
+
+        if st.button(
+            "Save Cover Letter Changes"
+        ):
+
+            st.session_state[
+                "cover_letter"
+            ] = edited_cover_letter
+
+            st.success(
+                "Cover letter changes saved."
+            )    
+
+with tab4:
+
+    if "interview_preparation" in st.session_state:
+
+        edited_interview_preparation = (
+            st.text_area(
+                "Interview Preparation",
+                value=st.session_state[
+                    "interview_preparation"
+                ],
+                height=600,
+            )
+        )
+        interview_docx = (
+            create_interview_docx(
+                st.session_state[
+                    "interview_preparation"
+                ]
+            )
+        )
+
+        st.download_button(
+            "Download Interview Preparation",
+            data=interview_docx,
+            file_name="interview_preparation.docx",
+            mime=(
+                "application/"
+                "vnd.openxmlformats-officedocument."
+                "wordprocessingml.document"
+            ),
+        )
+
+        if st.button(
+            "Save Interview Preparation Changes"
+        ):
+
+            st.session_state[
+                "interview_preparation"
+            ] = edited_interview_preparation
+
+            st.success(
+                "Interview preparation changes saved."
+            )    
