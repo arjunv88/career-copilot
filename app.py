@@ -813,6 +813,19 @@ def create_interview_docx(
 
     return buffer.getvalue()
 
+defaults = {
+    "candidate_profile": None,
+    "job_profile": None,
+    "cpp_result": None,
+    "tailored_cv": None,
+    "cover_letter": None,
+    "interview_prep": None,
+}
+
+for key, value in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = value
+
 st.set_page_config(
     page_title="Career Copilot",
     page_icon="💼",
@@ -1077,18 +1090,18 @@ if "job_profile" in st.session_state:
 
     job_data = st.session_state["job_profile"]
 
-    cpp_result = match_engine.calculate_match(
+    st.session_state["cpp_result"] = match_engine.calculate_match(
         candidate_data["technical_skills"],
         job_data["required_skills"],
     )
 
     st.session_state["match_result"] = {
-        "score": cpp_result.score,
+        "score": st.session_state["cpp_result"].score,
         "matched_skills": list(
-            cpp_result.matched_skills
+            st.session_state["cpp_result"].matched_skills
         ),
         "missing_skills": list(
-            cpp_result.missing_skills
+            st.session_state["cpp_result"].missing_skills
         ),
     }
 
@@ -1127,17 +1140,18 @@ st.header(
 )
 
 candidate_ready = (
-    candidate_data is not None
+    st.session_state["candidate_profile"] is not None
 )
 
+if not candidate_ready:
+    st.info("Create or load a candidate profile first.")
+
 job_ready = (
-    "job_profile"
-    in st.session_state
+    st.session_state["job_profile"] is not None
 )
 
 match_ready = (
-    "match_result"
-    in st.session_state
+    st.session_state["cpp_result"] is not None
 )        
 if (
     candidate_ready
