@@ -355,6 +355,93 @@ def load_candidate_profile():
 
         return json.load(file)
     
+def create_tailored_cv(
+    candidate_data: dict,
+    job_data: dict,
+    match_data: dict,
+) -> TailoredCV:
+
+    api_key = os.getenv("OPENAI_API_KEY")
+
+    if not api_key:
+        raise ValueError(
+            "OPENAI_API_KEY was not found."
+        )
+
+    client = OpenAI(
+        api_key=api_key
+    )
+
+    system_prompt = """
+You are the CV tailoring component of Career Copilot.
+
+Your task is to create a job-specific CV using ONLY
+facts contained in the approved candidate profile.
+
+You may:
+- prioritize relevant experience
+- reorder skills according to job relevance
+- rewrite existing experience more clearly
+- shorten less relevant content
+- emphasize evidence that supports the job requirements
+
+You must NEVER:
+- invent skills
+- invent employers
+- invent projects
+- invent responsibilities
+- invent certifications
+- invent achievements
+- claim experience merely because the job requires it
+
+The approved candidate profile is the factual source of truth.
+
+The compatibility analysis is guidance only.
+If a skill appears in the missing-skills list,
+do not claim that the candidate has that skill.
+
+Return the tailored CV according to the provided schema.
+"""
+
+    user_content = f"""
+APPROVED CANDIDATE PROFILE:
+
+{json.dumps(candidate_data, indent=2)}
+
+STRUCTURED JOB PROFILE:
+
+{json.dumps(job_data, indent=2)}
+
+COMPATIBILITY ANALYSIS:
+
+{json.dumps(match_data, indent=2)}
+
+Create a tailored CV for this job.
+"""
+
+    response = client.responses.parse(
+        model="gpt-4.1-mini",
+        input=[
+            {
+                "role": "system",
+                "content": system_prompt,
+            },
+            {
+                "role": "user",
+                "content": user_content,
+            },
+        ],
+        text_format=TailoredCV,
+    )
+
+    tailored_cv = response.output_parsed
+
+    if tailored_cv is None:
+        raise ValueError(
+            "The AI did not return a valid tailored CV."
+        )
+
+    return tailored_cv    
 
 st.set_page_config(
     page_title="Career Copilot",
@@ -701,3 +788,49 @@ else:
         "job analysis, and compatibility "
         "analysis first."
     )
+
+if (
+    candidate_data is not None
+    and "job_profile" in st.session_state
+    and "match_result" in st.session_state
+):
+
+    if st.button(
+        "Generate Tailored CV",
+        type="primary",
+    ):
+
+        with st.spinner(
+            "Career Copilot is tailoring your CV..."
+        ):
+
+            try:
+
+                tailored_cv = create_tailored_cv(
+                    candidate_data,
+                    st.session_state["job_profile"],
+                    st.session_state["match_result"],
+                )
+
+                st.session_state["tailored_cv"] = (
+                    tailored_cv.model_dump()
+                )
+
+                st.success(
+                    "Tailored CV generated successfully."
+                )
+
+            except Exception as error:
+
+                st.error(
+                    f"Tailored CV generation failed: {error}"
+                )
+if "tailored_cv" in st.session_state:
+
+    st.subheader(
+        "Tailored CV"
+    )
+
+    st.json(
+        st.session_state["tailored_cv"]
+    )    
