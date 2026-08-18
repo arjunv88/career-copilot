@@ -975,7 +975,29 @@ st.set_page_config(
 )
 
 st.title("Career Copilot")
+st.caption(
+    "Beta v0.4"
+)
+st.warning(
+    "AI-generated application content "
+    "must be reviewed before use."
+)
 st.subheader("AI-powered CV profile extractor")
+
+profile_tab, job_tab, application_tab, history_tab = (
+    st.tabs(
+        [
+            "Candidate Profile",
+            "Job Analysis",
+            "Application Package",
+            "Application History",
+        ]
+    )
+)
+with profile_tab:
+       st.header(
+        "Candidate Profile"
+    )
 
 uploaded_file = st.file_uploader(
     "Upload your CV",
@@ -1181,7 +1203,11 @@ candidate_data = (
     load_candidate_profile()
 )    
 
-st.header("Job Compatibility Analysis")
+with job_tab:
+
+    st.header(
+        "Job Analysis"
+    )
 
 st.write(
     "Paste a job description below. "
@@ -1308,9 +1334,14 @@ if "job_profile" in st.session_state:
         f"{match_data['score']:.1f}%"
     )
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
 
     with col1:
+         st.metric(
+            "Compatibility",
+            f"{match_data['score']:.1f}%"
+        )
+    with col2:
         st.success("Matched Skills")
 
         if match_data["matched_skills"]:
@@ -1319,7 +1350,7 @@ if "job_profile" in st.session_state:
         else:
             st.write("No exact skill matches found.")
 
-    with col2:
+    with col3:
         st.warning("Missing Skills")
 
         if match_data["missing_skills"]:
@@ -1327,12 +1358,34 @@ if "job_profile" in st.session_state:
                 st.write(f"⚠️ {skill}")
         else:
             st.write("No missing required skills.")
-st.divider()
-
-st.header(
-    "Application Package"
+    score = (
+    match_data["score"]
+    / 100
 )
 
+score = min(
+    max(score, 0),
+    1
+)
+
+st.progress(
+    score
+)        
+st.divider()
+
+with application_tab:
+
+    st.header(
+        "Application Package"
+    )
+
+    cv_tab, cover_tab, interview_tab = st.tabs(
+        [
+            "Tailored CV",
+            "Cover Letter",
+            "Interview Prep",
+        ]
+    )
 candidate_ready = (
     st.session_state["candidate_profile"] is not None
 )
@@ -1373,48 +1426,49 @@ if (
     and "match_result" in st.session_state
 ):
 
-    if st.button(
+
+        if st.button(
         "Generate Tailored CV",
         type="primary",
     ):
 
-        with st.spinner(
+            with st.spinner(
             "Career Copilot is tailoring your CV..."
         ):
 
-            try:
+                try:
 
-                tailored_cv = create_tailored_cv(
-                    candidate_data,
-                    st.session_state["job_profile"],
-                    st.session_state["match_result"],
-                )
+                    tailored_cv = create_tailored_cv(
+                        candidate_data,
+                        st.session_state["job_profile"],
+                        st.session_state["match_result"],
+                    )
 
-                st.session_state["tailored_cv"] = (
-                    tailored_cv.model_dump()
-                )
+                    st.session_state["tailored_cv"] = (
+                        tailored_cv.model_dump()
+                    )
 
-                st.success(
-                    "Tailored CV generated successfully."
-                )
+                    st.success(
+                        "Tailored CV generated successfully."
+                    )
 
-            except Exception as error:
+                except Exception as error:
 
-                st.error(
-        "Tailored CV generation failed."
-    )
+                    st.error(
+                        "Tailored CV generation failed."
+                    )
 
-    with st.expander(
-        "Technical details"
-    ):
+                    with st.expander(
+                        "Technical details"
+                    ):
 
-        st.code(
-            str(error)
-        )
-        
+                        st.code(
+                            str(error)
+                        )
+
 if "tailored_cv" in st.session_state:
-
-    st.subheader(
+    with cv_tab:
+        st.subheader(
         "Tailored CV"
     )
 
@@ -1458,8 +1512,8 @@ if (
                 )  
 
 if "cover_letter" in st.session_state:
-
-    st.subheader(
+    with cover_tab:
+        st.subheader(
         "Cover Letter"
     )
 
@@ -1512,8 +1566,9 @@ if (
     "interview_preparation"
     in st.session_state
 ):
+    with interview_tab:
 
-    prep = st.session_state[
+        prep = st.session_state[
         "interview_preparation"
     ]
 
@@ -1883,7 +1938,8 @@ if (
 
 st.divider()
 
-st.header(
+with history_tab:
+    st.header(
     "Application History"
 )    
 
