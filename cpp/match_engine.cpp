@@ -24,9 +24,63 @@ std::string normalize_skill(
         }
     );
 
+    // Remove spaces
+    skill.erase(
+        std::remove(
+            skill.begin(),
+            skill.end(),
+            ' '
+        ),
+        skill.end()
+    );
+
+    // Common aliases
+    if (
+        skill == "embeddedc/c++"
+        ||
+        skill == "cpp"
+        ||
+        skill == "modernc++"
+    )
+    {
+        return "c++";
+    }
+
+    if (
+        skill == "matlab/simulink"
+        ||
+        skill == "matlab/simulink"
+        ||
+        skill == "matlab"
+        ||
+        skill == "simulink"
+    )
+    {
+        return "matlab_simulink";
+    }
+
+    if (
+        skill == "iso26262(asil-d)"
+        ||
+        skill == "iso26262"
+    )
+    {
+        return "iso26262";
+    }
+
+    if (
+        skill == "realtimesystems"
+        ||
+        skill == "real-timesystems"
+        ||
+        skill == "realtimesoftware"
+    )
+    {
+        return "real_time_systems";
+    }
+
     return skill;
 }
-
 
 struct MatchResult
 {
