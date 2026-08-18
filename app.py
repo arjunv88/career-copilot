@@ -746,8 +746,36 @@ def create_cover_letter_docx(
     return buffer.getvalue()
 
 def create_interview_docx(
-    prep: dict,
+    prep,
 ) -> bytes:
+
+    # -----------------------------------
+    # Make sure prep is a dictionary
+    # -----------------------------------
+
+    if isinstance(prep, str):
+
+        try:
+            prep = json.loads(prep)
+
+        except json.JSONDecodeError:
+
+            raise TypeError(
+                "Interview preparation is stored as plain text "
+                "instead of structured data."
+            )
+
+
+    if not isinstance(prep, dict):
+
+        raise TypeError(
+            "Interview preparation must be a dictionary."
+        )
+
+
+    # -----------------------------------
+    # Create Word document
+    # -----------------------------------
 
     document = Document()
 
@@ -755,6 +783,7 @@ def create_interview_docx(
         "Interview Preparation",
         level=0,
     )
+
 
     sections = [
         (
@@ -771,6 +800,7 @@ def create_interview_docx(
         ),
     ]
 
+
     for section_title, key in sections:
 
         document.add_heading(
@@ -778,33 +808,59 @@ def create_interview_docx(
             level=1,
         )
 
-        for item in prep[key]:
+
+        questions = prep.get(
+            key,
+            []
+        )
+
+
+        for item in questions:
+
+            if not isinstance(
+                item,
+                dict
+            ):
+                continue
+
 
             document.add_heading(
-                item["question"],
+                item.get(
+                    "question",
+                    "Question",
+                ),
                 level=2,
             )
+
 
             document.add_paragraph(
                 "Why this may be asked:"
             )
 
+
             document.add_paragraph(
-                item["why_it_matters"]
+                item.get(
+                    "why_it_matters",
+                    "",
+                )
             )
+
 
             document.add_paragraph(
                 "Preparation points:"
             )
 
-            for point in item[
-                "preparation_points"
-            ]:
+
+            for point in item.get(
+                "preparation_points",
+                []
+            ):
 
                 document.add_paragraph(
-                    point,
+                    str(point),
                     style="List Bullet",
                 )
+
 
     buffer = BytesIO()
 
@@ -1268,13 +1324,13 @@ if st.button(
 
                 st.error(
         "Job analysis failed."
-    )
+        )
 
-    with st.expander(
+                with st.expander(
         "Technical details"
     ):
 
-        st.code(
+                    st.code(
             str(error)
         )
 
@@ -1652,130 +1708,173 @@ if (
                 st.error(
                     f"Interview preparation failed: {error}"
                 )
-if (
-    "interview_preparation"
-    in st.session_state
-):
-    with interview_tab:
+with interview_tab:
 
-        prep = st.session_state[
+    prep = st.session_state.get(
         "interview_preparation"
-    ]
-
-    st.subheader(
-        "Interview Preparation"
     )
 
-    st.markdown(
-        "### Technical Questions"
-    )
+    # Only continue if interview preparation
+    # has actually been generated
+    if prep is not None:
 
-    for item in prep[
-        "technical_questions"
-    ]:
+        # Safety check:
+        # interview preparation should be a dictionary
+        if not isinstance(prep, dict):
 
-        st.markdown(
-            f"**Question:** {item['question']}"
-        )
-
-        st.write(
-            f"Why it matters: {item['why_it_matters']}"
-        )
-
-        st.write(
-            "Preparation points:"
-        )
-
-        for point in item[
-            "preparation_points"
-        ]:
-            st.write(
-                f"- {point}"
+            st.error(
+                "Interview preparation is not in "
+                "the expected structured format."
             )
 
-        st.divider()
+            with st.expander(
+                "Technical details"
+            ):
+                st.write(
+                    f"Current data type: {type(prep)}"
+                )
 
-if (
-    "interview_preparation"
-    in st.session_state
-):
+                st.write(
+                    prep
+                )
 
-    prep = st.session_state[
-        "interview_preparation"
-    ]
+        else:
 
-    st.subheader(
-        "Interview Preparation"
-    )
-
-    st.markdown(
-        "### Behavioral Questions"
-    )
-
-    for item in prep[
-        "behavioral_questions"
-    ]:
-
-        st.markdown(
-            f"**Question:** {item['question']}"
-        )
-
-        st.write(
-            f"Why it matters: {item['why_it_matters']}"
-        )
-
-        st.write(
-            "Preparation points:"
-        )
-
-        for point in item[
-            "preparation_points"
-        ]:
-            st.write(
-                f"- {point}"
+            st.subheader(
+                "Interview Preparation"
             )
 
-        st.divider()   
-if (
-    "interview_preparation"
-    in st.session_state
-):
 
-    prep = st.session_state[
-        "interview_preparation"
-    ]
+            # -----------------------------------
+            # TECHNICAL QUESTIONS
+            # -----------------------------------
 
-    st.subheader(
-        "Interview Preparation"
-    )
-
-    st.markdown(
-        "### Experience Questions"
-    )
-
-    for item in prep[
-        "experience_questions"
-    ]:
-
-        st.markdown(
-            f"**Question:** {item['question']}"
-        )
-
-        st.write(
-            f"Why it matters: {item['why_it_matters']}"
-        )
-
-        st.write(
-            "Preparation points:"
-        )
-
-        for point in item[
-            "preparation_points"
-        ]:
-            st.write(
-                f"- {point}"
+            st.markdown(
+                "### Technical Questions"
             )
 
+            for item in prep.get(
+                "technical_questions",
+                []
+            ):
+
+                st.markdown(
+                    f"**Question:** "
+                    f"{item.get('question', '')}"
+                )
+
+                st.write(
+                    "Why it matters: "
+                    + item.get(
+                        "why_it_matters",
+                        ""
+                    )
+                )
+
+                st.write(
+                    "Preparation points:"
+                )
+
+                for point in item.get(
+                    "preparation_points",
+                    []
+                ):
+
+                    st.write(
+                        f"- {point}"
+                    )
+
+                st.divider()
+
+
+            # -----------------------------------
+            # EXPERIENCE QUESTIONS
+            # -----------------------------------
+
+            st.markdown(
+                "### Experience Questions"
+            )
+
+            for item in prep.get(
+                "experience_questions",
+                []
+            ):
+
+                st.markdown(
+                    f"**Question:** "
+                    f"{item.get('question', '')}"
+                )
+
+                st.write(
+                    "Why it matters: "
+                    + item.get(
+                        "why_it_matters",
+                        ""
+                    )
+                )
+
+                st.write(
+                    "Preparation points:"
+                )
+
+                for point in item.get(
+                    "preparation_points",
+                    []
+                ):
+
+                    st.write(
+                        f"- {point}"
+                    )
+
+                st.divider()
+
+
+            # -----------------------------------
+            # BEHAVIORAL QUESTIONS
+            # -----------------------------------
+
+            st.markdown(
+                "### Behavioral Questions"
+            )
+
+            for item in prep.get(
+                "behavioral_questions",
+                []
+            ):
+
+                st.markdown(
+                    f"**Question:** "
+                    f"{item.get('question', '')}"
+                )
+
+                st.write(
+                    "Why it matters: "
+                    + item.get(
+                        "why_it_matters",
+                        ""
+                    )
+                )
+
+                st.write(
+                    "Preparation points:"
+                )
+
+                for point in item.get(
+                    "preparation_points",
+                    []
+                ):
+
+                    st.write(
+                        f"- {point}"
+                    )
+
+                st.divider()
+
+    else:
+
+        st.info(
+            "Generate interview preparation first."
+        )
         st.divider()   
 
 result_tabs = st.tabs(
@@ -1899,47 +1998,196 @@ with cover_tab:
 
 with interview_tab:
 
-    if "interview_preparation" in st.session_state:
+    prep_data = st.session_state.get(
+        "interview_preparation"
+    )
 
-        edited_interview_preparation = (
-            st.text_area(
-                "Interview Preparation",
-                value=st.session_state[
-                    "interview_preparation"
-                ],
-                height=600,
-            )
-        )
-        interview_docx = (
-            create_interview_docx(
-                st.session_state[
-                    "interview_preparation"
-                ]
-            )
-        )
+    if prep_data is not None:
 
-        st.download_button(
-            "Download Interview Preparation",
-            data=interview_docx,
-            file_name="interview_preparation.docx",
-            mime=(
-                "application/"
-                "vnd.openxmlformats-officedocument."
-                "wordprocessingml.document"
-            ),
-        )
-
-        if st.button(
-            "Save Interview Preparation Changes"
+        if not isinstance(
+            prep_data,
+            dict
         ):
 
-            st.session_state[
-                "interview_preparation"
-            ] = edited_interview_preparation
-
-            st.success(
-                "Interview preparation changes saved."
+            st.error(
+                "Interview preparation is not "
+                "in the expected structured format."
             )
+
+            with st.expander(
+                "Technical details"
+            ):
+                st.write(
+                    "Current type:",
+                    type(prep_data)
+                )
+
+        else:
+
+            st.subheader(
+                "Interview Preparation"
+            )
+
+            # -----------------------------------
+            # DISPLAY STRUCTURED QUESTIONS
+            # -----------------------------------
+
+            st.markdown(
+                "### Technical Questions"
+            )
+
+            for item in prep_data.get(
+                "technical_questions",
+                []
+            ):
+
+                st.markdown(
+                    f"**Question:** "
+                    f"{item.get('question', '')}"
+                )
+
+                st.write(
+                    "Why it matters: "
+                    + item.get(
+                        "why_it_matters",
+                        ""
+                    )
+                )
+
+                st.write(
+                    "Preparation points:"
+                )
+
+                for point in item.get(
+                    "preparation_points",
+                    []
+                ):
+                    st.write(
+                        f"- {point}"
+                    )
+
+                st.divider()
+
+
+            st.markdown(
+                "### Experience Questions"
+            )
+
+            for item in prep_data.get(
+                "experience_questions",
+                []
+            ):
+
+                st.markdown(
+                    f"**Question:** "
+                    f"{item.get('question', '')}"
+                )
+
+                st.write(
+                    "Why it matters: "
+                    + item.get(
+                        "why_it_matters",
+                        ""
+                    )
+                )
+
+                st.write(
+                    "Preparation points:"
+                )
+
+                for point in item.get(
+                    "preparation_points",
+                    []
+                ):
+                    st.write(
+                        f"- {point}"
+                    )
+
+                st.divider()
+
+
+            st.markdown(
+                "### Behavioral Questions"
+            )
+
+            for item in prep_data.get(
+                "behavioral_questions",
+                []
+            ):
+
+                st.markdown(
+                    f"**Question:** "
+                    f"{item.get('question', '')}"
+                )
+
+                st.write(
+                    "Why it matters: "
+                    + item.get(
+                        "why_it_matters",
+                        ""
+                    )
+                )
+
+                st.write(
+                    "Preparation points:"
+                )
+
+                for point in item.get(
+                    "preparation_points",
+                    []
+                ):
+                    st.write(
+                        f"- {point}"
+                    )
+
+                st.divider()
+
+
+            # -----------------------------------
+            # CREATE DOWNLOAD
+            # -----------------------------------
+
+            try:
+
+                interview_docx = (
+                    create_interview_docx(
+                        prep_data
+                    )
+                )
+
+                st.download_button(
+                    "Download Interview Preparation",
+                    data=interview_docx,
+                    file_name=(
+                        "interview_preparation.docx"
+                    ),
+                    mime=(
+                        "application/"
+                        "vnd.openxmlformats-officedocument."
+                        "wordprocessingml.document"
+                    ),
+                )
+
+            except Exception as error:
+
+                st.error(
+                    "Interview preparation "
+                    "document creation failed."
+                )
+
+                with st.expander(
+                    "Technical details"
+                ):
+                    st.code(
+                        str(error)
+                    )
+
+    else:
+
+        st.info(
+            "Generate interview preparation first."
+        )
+
 st.divider()
 
 st.subheader(
