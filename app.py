@@ -1059,16 +1059,18 @@ if uploaded_file is not None:
 if "candidate_profile" in st.session_state:
     st.subheader("Review your candidate profile")
 
-    profile_data = st.session_state["candidate_profile"]
+    profile_data = st.session_state.get(
+    "candidate_profile"
+)
 
-    st.warning(
-        "Review the information carefully. "
-        "The AI may misunderstand or omit details."
-    )
+if profile_data is not None:
 
     full_name = st.text_input(
         "Full name",
-        value=profile_data.get("full_name", ""),
+        value=profile_data.get(
+            "full_name",
+            ""
+        ),
     )
 
     professional_title = st.text_input(
@@ -1278,25 +1280,156 @@ if st.button(
 
     st.stop()
 
-if "job_profile" in st.session_state:
+candidate_data = None
 
-    candidate_data = None
+try:
+    candidate_data = load_candidate_profile()
+
+except FileNotFoundError:
+    pass
+
+
+job_data = st.session_state.get(
+    "job_profile"
+)
+
+
+# Only run compatibility analysis
+# when BOTH CV and job profile exist
+if (
+    candidate_data is not None
+    and job_data is not None
+):
 
     try:
-        candidate_data = (
-            load_candidate_profile()
+
+        cpp_result = match_engine.calculate_match(
+            candidate_data.get(
+                "technical_skills",
+                []
+            ),
+            job_data.get(
+                "required_skills",
+                []
+            ),
         )
 
-    except FileNotFoundError:
-        pass
+        # Save raw C++ result
+        st.session_state[
+            "cpp_result"
+        ] = cpp_result
 
-    job_data = st.session_state["job_profile"]
 
-    try:
-        st.session_state["cpp_result"] = match_engine.calculate_match(
-            candidate_data["technical_skills"],
-            job_data["required_skills"],
+        # Convert the C++ result into
+        # a normal Python dictionary
+        st.session_state[
+            "match_result"
+        ] = {
+            "score": cpp_result.score,
+
+            "matched_skills": list(
+                cpp_result.matched_skills
+            ),
+
+            "missing_skills": list(
+                cpp_result.missing_skills
+            ),
+        }
+
+
+        # Get saved result for display
+        match_data = st.session_state[
+            "match_result"
+        ]
+
+
+        st.subheader(
+            "C++ Compatibility Analysis"
         )
+
+
+        st.metric(
+            "Technical Match Score",
+            f"{match_data['score']:.1f}%"
+        )
+
+
+        col1, col2, col3 = st.columns(3)
+
+
+        with col1:
+
+            st.metric(
+                "Compatibility",
+                f"{match_data['score']:.1f}%"
+            )
+
+
+        with col2:
+
+            st.success(
+                "Matched Skills"
+            )
+
+            if match_data[
+                "matched_skills"
+            ]:
+
+                for skill in match_data[
+                    "matched_skills"
+                ]:
+
+                    st.write(
+                        f"✅ {skill}"
+                    )
+
+            else:
+
+                st.write(
+                    "No exact skill matches found."
+                )
+
+
+        with col3:
+
+            st.warning(
+                "Missing Skills"
+            )
+
+            if match_data[
+                "missing_skills"
+            ]:
+
+                for skill in match_data[
+                    "missing_skills"
+                ]:
+
+                    st.write(
+                        f"⚠️ {skill}"
+                    )
+
+            else:
+
+                st.write(
+                    "No missing required skills."
+                )
+
+
+        # Progress bar
+        score = (
+            match_data["score"]
+            / 100
+        )
+
+        score = min(
+            max(score, 0),
+            1
+        )
+
+        st.progress(
+            score
+        )
+
 
     except Exception as error:
 
@@ -1312,65 +1445,13 @@ if "job_profile" in st.session_state:
                 str(error)
             )
 
-        st.stop() 
 
+else:
 
-    st.session_state["match_result"] = {
-        "score": st.session_state["cpp_result"].score,
-        "matched_skills": list(
-            st.session_state["cpp_result"].matched_skills
-        ),
-        "missing_skills": list(
-            st.session_state["cpp_result"].missing_skills
-        ),
-    }
-
-    st.subheader("C++ Compatibility Analysis")
-
-    match_data = st.session_state["match_result"]
-
-    st.metric(
-        "Technical Match Score",
-        f"{match_data['score']:.1f}%"
+    st.info(
+        "Load a candidate CV and analyse "
+        "a job description to run compatibility analysis."
     )
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-         st.metric(
-            "Compatibility",
-            f"{match_data['score']:.1f}%"
-        )
-    with col2:
-        st.success("Matched Skills")
-
-        if match_data["matched_skills"]:
-            for skill in match_data["matched_skills"]:
-                st.write(f"✅ {skill}")
-        else:
-            st.write("No exact skill matches found.")
-
-    with col3:
-        st.warning("Missing Skills")
-
-        if match_data["missing_skills"]:
-            for skill in match_data["missing_skills"]:
-                st.write(f"⚠️ {skill}")
-        else:
-            st.write("No missing required skills.")
-    score = (
-    match_data["score"]
-    / 100
-)
-
-score = min(
-    max(score, 0),
-    1
-)
-
-st.progress(
-    score
-)        
 st.divider()
 
 with application_tab:
@@ -1419,62 +1500,71 @@ else:
         "job analysis, and compatibility "
         "analysis first."
     )
+# --------------------------------------------------
+# TAILORED CV GENERATION
+# --------------------------------------------------
 
 if (
     candidate_data is not None
-    and "job_profile" in st.session_state
-    and "match_result" in st.session_state
+    and st.session_state.get("job_profile") is not None
+    and st.session_state.get("match_result") is not None
 ):
 
-
-        if st.button(
+    if st.button(
         "Generate Tailored CV",
         type="primary",
     ):
 
-            with st.spinner(
+        with st.spinner(
             "Career Copilot is tailoring your CV..."
         ):
 
-                try:
+            try:
 
-                    tailored_cv = create_tailored_cv(
-                        candidate_data,
-                        st.session_state["job_profile"],
-                        st.session_state["match_result"],
+                tailored_cv = create_tailored_cv(
+                    candidate_data,
+                    st.session_state["job_profile"],
+                    st.session_state["match_result"],
+                )
+
+                st.session_state["tailored_cv"] = (
+                    tailored_cv.model_dump()
+                )
+
+                st.success(
+                    "Tailored CV generated successfully."
+                )
+
+            except Exception as error:
+
+                st.error(
+                    "Tailored CV generation failed."
+                )
+
+                with st.expander(
+                    "Technical details"
+                ):
+
+                    st.code(
+                        str(error)
                     )
 
-                    st.session_state["tailored_cv"] = (
-                        tailored_cv.model_dump()
-                    )
 
-                    st.success(
-                        "Tailored CV generated successfully."
-                    )
+# --------------------------------------------------
+# TAILORED CV DISPLAY
+# --------------------------------------------------
 
-                except Exception as error:
+with cv_tab:
 
-                    st.error(
-                        "Tailored CV generation failed."
-                    )
+    if st.session_state.get("tailored_cv") is not None:
 
-                    with st.expander(
-                        "Technical details"
-                    ):
-
-                        st.code(
-                            str(error)
-                        )
-
-if "tailored_cv" in st.session_state:
-    with cv_tab:
         st.subheader(
-        "Tailored CV"
-    )
+            "Tailored CV"
+        )
 
-    st.json(
-        st.session_state["tailored_cv"]
-    )    
+        st.json(
+            st.session_state["tailored_cv"]
+        )  
 if (
     candidate_data is not None
     and "job_profile" in st.session_state
@@ -1688,7 +1778,7 @@ if (
 
         st.divider()   
 
-tab1, tab2, tab3, tab4 = st.tabs(
+result_tabs = st.tabs(
     [
         "Compatibility",
         "Tailored CV",
@@ -1697,102 +1787,85 @@ tab1, tab2, tab3, tab4 = st.tabs(
     ]
 )
 
-with tab1:
+compatibility_tab = result_tabs[0]
+cv_tab = result_tabs[1]
+cover_tab = result_tabs[2]
+interview_tab = result_tabs[3]
 
-    if "match_result" in st.session_state:
+with compatibility_tab:
 
-        match_data = st.session_state[
-            "match_result"
-        ]
+    if st.session_state.get("match_result") is not None:
+
+        match_data = st.session_state["match_result"]
 
         st.metric(
             "Technical Match Score",
             f"{match_data['score']:.1f}%"
         )
-with tab2:
 
-    if "tailored_cv" in st.session_state:
+    else:
 
-        cv_data = st.session_state[
-            "tailored_cv"
-        ]
+        st.info(
+            "Complete the candidate profile and "
+            "job analysis to view compatibility."
+        )
+with cv_tab:
 
-        professional_title = (
-            st.text_input(
-                "Professional title",
-                value=cv_data[
-                    "professional_title"
-                ],
-            )
+    cv_data = st.session_state.get("tailored_cv")
+    if cv_data is not None:
+        st.subheader("Tailored CV")
+
+        professional_title = st.text_input(
+            "Professional title",
+            value=cv_data["professional_title"],
         )
 
-        professional_summary = (
-            st.text_area(
-                "Professional summary",
-                value=cv_data[
-                    "professional_summary"
-                ],
-                height=180,
-            )
+        professional_summary = st.text_area(
+            "Professional summary",
+            value=cv_data["professional_summary"],
+            height=180,
         )
-if "tailored_cv" in st.session_state:
 
-    cv_docx = create_cv_docx(
-        st.session_state[
-            "tailored_cv"
-        ]
+        cv_docx = create_cv_docx(cv_data)
+
+        st.download_button(
+            label="Download Tailored CV",
+            data=cv_docx,
+            file_name="tailored_cv.docx",
+            mime=(
+                "application/"
+                "vnd.openxmlformats-officedocument."
+                "wordprocessingml.document"
+            ),
+        )
+
+        if st.button("Save CV Changes"):
+            cv_data["professional_title"] = professional_title
+            cv_data["professional_summary"] = professional_summary
+            st.success("CV changes saved.")
+
+        else:
+
+            st.info(
+            "Generate a tailored CV first."
+        )        
+
+with cover_tab:
+
+    cover_letter_data = st.session_state.get(
+        "cover_letter"
     )
 
-    st.download_button(
-        label="Download Tailored CV",
-        data=cv_docx,
-        file_name="tailored_cv.docx",
-        mime=(
-            "application/"
-            "vnd.openxmlformats-officedocument."
-            "wordprocessingml.document"
-        ),
-    )         
+    if cover_letter_data is not None:
 
-if st.button(
-    "Save CV Changes"
-):
-
-    st.session_state[
-        "tailored_cv"
-    ][
-        "professional_title"
-    ] = professional_title
-
-    st.session_state[
-        "tailored_cv"
-    ][
-        "professional_summary"
-    ] = professional_summary
-
-    st.success(
-        "CV changes saved."
-    )
-
-with tab3:
-
-    if "cover_letter" in st.session_state:
-
-        edited_cover_letter = (
-            st.text_area(
-                "Cover Letter",
-                value=st.session_state[
-                    "cover_letter"
-                ],
-                height=600,
-            )
+        edited_cover_letter = st.text_area(
+            "Cover Letter",
+            value=cover_letter_data,
+            height=600,
         )
-        cover_docx = (
-            create_cover_letter_docx(
-                st.session_state[
-                    "cover_letter"
-                ]
-            )
+
+        cover_docx = create_cover_letter_docx(
+            cover_letter_data
         )
 
         st.download_button(
@@ -1816,9 +1889,15 @@ with tab3:
 
             st.success(
                 "Cover letter changes saved."
-            )    
+            )
 
-with tab4:
+    else:
+
+        st.info(
+            "Generate a cover letter first."
+        )
+
+with interview_tab:
 
     if "interview_preparation" in st.session_state:
 
