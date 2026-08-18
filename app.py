@@ -1020,8 +1020,19 @@ if uploaded_file is not None:
                 )
 
     except Exception as error:
-        st.error(f"An error occurred: {error}")
+        st.error(
+            "The CV could not be processed."
+        )
 
+        with st.expander(
+            "Technical details"
+        ):
+
+            st.code(
+                str(error)
+            )
+
+        st.stop()
 
 if "candidate_profile" in st.session_state:
     st.subheader("Review your candidate profile")
@@ -1192,6 +1203,18 @@ if st.button(
         st.warning(
             "Please paste a job description first."
         )
+        st.stop()
+
+    if len(
+    job_description.strip()
+) < 200:
+
+        st.warning(
+            "The job description seems very short. "
+            "Please paste the complete vacancy."
+        )
+
+        st.stop()    
 
     else:
 
@@ -1216,8 +1239,19 @@ if st.button(
             except Exception as error:
 
                 st.error(
-                    f"Job analysis failed: {error}"
-                )
+        "Job analysis failed."
+    )
+
+    with st.expander(
+        "Technical details"
+    ):
+
+        st.code(
+            str(error)
+        )
+
+    st.stop()
+
 if "job_profile" in st.session_state:
 
     candidate_data = None
@@ -1232,10 +1266,28 @@ if "job_profile" in st.session_state:
 
     job_data = st.session_state["job_profile"]
 
-    st.session_state["cpp_result"] = match_engine.calculate_match(
-        candidate_data["technical_skills"],
-        job_data["required_skills"],
-    )
+    try:
+        st.session_state["cpp_result"] = match_engine.calculate_match(
+            candidate_data["technical_skills"],
+            job_data["required_skills"],
+        )
+
+    except Exception as error:
+
+        st.error(
+            "The C++ compatibility engine failed."
+        )
+
+        with st.expander(
+            "Technical details"
+        ):
+
+            st.code(
+                str(error)
+            )
+
+        st.stop() 
+
 
     st.session_state["match_result"] = {
         "score": st.session_state["cpp_result"].score,
@@ -1349,8 +1401,17 @@ if (
             except Exception as error:
 
                 st.error(
-                    f"Tailored CV generation failed: {error}"
-                )
+        "Tailored CV generation failed."
+    )
+
+    with st.expander(
+        "Technical details"
+    ):
+
+        st.code(
+            str(error)
+        )
+        
 if "tailored_cv" in st.session_state:
 
     st.subheader(
