@@ -152,6 +152,10 @@ SESSION_DEFAULTS = {
     "tailored_cv": None,
     "cover_letter": None,
     "interview_preparation": None,
+    "discovered_jobs": [],
+    "filtered_jobs": [],
+    "selected_discovered_job": None,
+
 }
 
 
