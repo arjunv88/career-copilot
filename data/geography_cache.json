@@ -1,0 +1,22 @@
+{
+  "taufkirchen, germany": {
+    "latitude": 48.0459958,
+    "longitude": 11.6151899
+  },
+  "manching, germany": {
+    "latitude": 48.7171356,
+    "longitude": 11.4940685
+  },
+  "stuttgart, germany": {
+    "latitude": 48.7784485,
+    "longitude": 9.1800132
+  },
+  "ulm, germany": {
+    "latitude": 48.3984968,
+    "longitude": 9.9912458
+  },
+  "karlsruhe, germany": {
+    "latitude": 49.0068705,
+    "longitude": 8.4034195
+  }
+}
