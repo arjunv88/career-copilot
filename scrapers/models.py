@@ -2,6 +2,7 @@ from pydantic import BaseModel, Field
 
 
 class DiscoveredJob(BaseModel):
+
     job_id: str
 
     title: str
@@ -9,26 +10,55 @@ class DiscoveredJob(BaseModel):
     location: str
 
     url: str
+
     description: str = ""
 
     source: str = ""
+
     posted_date: str = ""
 
+
     nearest_major_city: str = ""
-    distance_to_major_city_km: float | None = None
 
-    company_size: str = ""
-    company_size_confidence: str = ""
+    distance_to_major_city_km: (
+        float | None
+    ) = None
 
-    published_salary_min: float | None = None
-    published_salary_max: float | None = None
 
-    estimated_salary_min: float | None = None
-    estimated_salary_max: float | None = None
-    salary_confidence: str = ""
+    company_size: str = "Unknown"
+
+    company_size_confidence: str = (
+        "Unknown"
+    )
+
+
+    published_salary_min: (
+        float | None
+    ) = None
+
+    published_salary_max: (
+        float | None
+    ) = None
+
+
+    estimated_salary_min: (
+        float | None
+    ) = None
+
+    estimated_salary_max: (
+        float | None
+    ) = None
+
+
+    salary_confidence: str = (
+        "Unknown"
+    )
+
 
     initial_fit_score: float = 0.0
+
     discovery_score: float = 0.0
+
 
     metadata: dict = Field(
         default_factory=dict

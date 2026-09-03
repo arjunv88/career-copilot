@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
 
-from scrapers.models import DiscoveredJob
+from scrapers.models import (
+    DiscoveredJob,
+)
 
 
 class JobSource(ABC):
