@@ -8,7 +8,6 @@ class DiscoveredJob(BaseModel):
     title: str
     company: str
     location: str
-
     url: str
 
     description: str = ""

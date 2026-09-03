@@ -3,57 +3,41 @@ from discovery.filters import (
     company_size_score,
 )
 
-from discovery.salary import (
-    salary_score,
-    salary_is_promising,
-)
+
+def test_large_company():
+
+    assert (
+        company_size_allowed("Large")
+        is True
+    )
+
+    assert (
+        company_size_score("Large")
+        == 100.0
+    )
 
 
-print(
-    "Large:",
-    company_size_allowed("Large"),
-    company_size_score("Large"),
-)
+def test_small_company():
 
-print(
-    "Small:",
-    company_size_allowed("Small"),
-    company_size_score("Small"),
-)
+    assert (
+        company_size_allowed("Small")
+        is False
+    )
 
-print(
-    "Unknown:",
-    company_size_allowed("Unknown"),
-    company_size_score("Unknown"),
-)
+    assert (
+        company_size_score("Small")
+        == 30.0
+    )
 
 
-print(
-    "Salary 90k:",
-    salary_score(
-        90000,
-        100000,
-        None,
-        None,
-    ),
-)
+def test_unknown_company():
 
-print(
-    "Salary 65k:",
-    salary_score(
-        60000,
-        65000,
-        None,
-        None,
-    ),
-)
+    assert (
+        company_size_allowed("Unknown")
+        is True
+    )
 
-print(
-    "Unknown salary:",
-    salary_score(
-        None,
-        None,
-        None,
-        None,
-    ),
-)
+    assert (
+        company_size_score("Unknown")
+        == 50.0
+    )

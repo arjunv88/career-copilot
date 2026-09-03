@@ -10,6 +10,8 @@ class JobSource(ABC):
     @abstractmethod
     def search_jobs(
         self,
+        keywords: str,
+        location: str,
     ) -> list[DiscoveredJob]:
 
         pass
