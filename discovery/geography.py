@@ -87,6 +87,18 @@ def find_nearest_major_city(
         nearest_city,
         nearest_distance,
     )
+def location_is_allowed(
+    distance_km: float | None,
+    radius_km: float = 50.0,
+):
+
+    if distance_km is None:
+        return False
+
+    return (
+        distance_km <= radius_km
+    )
+
 def load_geography_cache() -> dict:
 
     if not CACHE_FILE.exists():
