@@ -61,20 +61,14 @@ def deduplicate_jobs(
 def enrich_job(
     job,
     candidate_data: dict,
+    location_analysis: dict,
     radius_km: float = 50.0,
     minimum_salary: float = 80000,
 ):
 
     # -----------------------------------------
-    # Geography
+    # Geography enrichment
     # -----------------------------------------
-
-    location_analysis = (
-        analyse_job_location(
-            job.location,
-            radius_km,
-        )
-    )
 
     job.nearest_major_city = (
         location_analysis[
@@ -151,6 +145,16 @@ def discover_jobs(
     jobs = []
 
     # -----------------------------------------
+    # Validate input
+    # -----------------------------------------
+
+    if not sources:
+        return []
+
+    if not locations:
+        return []
+
+    # -----------------------------------------
     # Collect jobs from every source
     # -----------------------------------------
 
@@ -177,9 +181,11 @@ def discover_jobs(
 
         elif callable(source):
 
-            source_jobs = source(
-                keywords,
-                locations,
+            source_jobs = (
+                source(
+                    keywords,
+                    locations,
+                )
             )
 
             if source_jobs:
@@ -196,6 +202,13 @@ def discover_jobs(
             )
 
     # -----------------------------------------
+    # Nothing returned by sources
+    # -----------------------------------------
+
+    if not jobs:
+        return []
+
+    # -----------------------------------------
     # Remove duplicates
     # -----------------------------------------
 
@@ -208,10 +221,14 @@ def discover_jobs(
     approved_jobs = []
 
     # -----------------------------------------
-    # Filter + enrich
+    # Filter + enrich jobs
     # -----------------------------------------
 
     for job in unique_jobs:
+
+        # -------------------------------------
+        # Geography
+        # -------------------------------------
 
         location_analysis = (
             analyse_job_location(
@@ -226,11 +243,19 @@ def discover_jobs(
             ]
         )
 
+        # -------------------------------------
+        # Company size
+        # -------------------------------------
+
         size_allowed = (
             company_size_allowed(
                 job.company_size
             )
         )
+
+        # -------------------------------------
+        # Salary
+        # -------------------------------------
 
         salary_allowed = (
             salary_is_promising(
@@ -242,6 +267,10 @@ def discover_jobs(
             )
         )
 
+        # -------------------------------------
+        # Reject jobs that fail hard filters
+        # -------------------------------------
+
         if not (
             location_allowed
             and size_allowed
@@ -249,12 +278,25 @@ def discover_jobs(
         ):
             continue
 
+        # -------------------------------------
+        # Enrich accepted job
+        # -------------------------------------
+
         enriched_job = (
             enrich_job(
-                job,
-                candidate_data,
-                radius_km,
-                minimum_salary,
+                job=job,
+                candidate_data=(
+                    candidate_data
+                ),
+                location_analysis=(
+                    location_analysis
+                ),
+                radius_km=(
+                    radius_km
+                ),
+                minimum_salary=(
+                    minimum_salary
+                ),
             )
         )
 
@@ -263,7 +305,7 @@ def discover_jobs(
         )
 
     # -----------------------------------------
-    # Highest score first
+    # Highest discovery score first
     # -----------------------------------------
 
     approved_jobs.sort(

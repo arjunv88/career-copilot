@@ -12,6 +12,35 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
+from storage.discovered_jobs import (
+    load_discovered_jobs,
+)
+
+from discovery.agent import (
+    discover_jobs,
+)
+
+from storage.discovered_jobs import (
+    save_discovered_jobs,
+    load_discovered_jobs,
+)
+
+from scrapers.sources.jooble import (
+    JoobleSource,
+)
+
+from scrapers.sources.arbeitnow import (
+    ArbeitnowSource,
+)
+
+from scrapers.sources.ba_jobs import (
+    BAJobsSource,
+)
+
 # ------------------------------------------------------------
 # OPTIONAL C++ MODULE IMPORT
 # ------------------------------------------------------------
@@ -46,6 +75,17 @@ DEFAULT_PROFILE_PATH = Path(
 APPLICATIONS_FOLDER = Path(
     "data/applications"
 )
+
+DISCOVERY_SOURCES = [
+    "Jooble",
+    "Arbeitnow",
+    "Bundesagentur",
+]
+
+DISCOVERY_COMPANY_SIZES = [
+    "Medium",
+    "Large",
+]
 
 
 # ------------------------------------------------------------
@@ -155,6 +195,8 @@ SESSION_DEFAULTS = {
     "discovered_jobs": [],
     "filtered_jobs": [],
     "selected_discovered_job": None,
+    "discovered_jobs": [],
+    "selected_discovered_job": None,
 
 }
 
@@ -186,6 +228,75 @@ def clear_job_and_application_outputs():
     st.session_state["job_profile"] = None
     st.session_state["job_description_text"] = ""
     clear_application_outputs()
+
+
+def filter_stored_discovered_jobs(
+    jobs: list[dict],
+    keywords: str,
+    location: str,
+    radius_km: float,
+    minimum_salary: float,
+    company_sizes: list[str],
+    sources: list[str],
+) -> list[dict]:
+    keyword_terms = [
+        term.lower()
+        for term in keywords.split()
+        if term.strip()
+    ]
+    location_term = location.strip().lower()
+    filtered_jobs = []
+
+    for job in jobs:
+        searchable_text = " ".join(
+            [
+                str(job.get("title", "")),
+                str(job.get("company", "")),
+                str(job.get("description", "")),
+            ]
+        ).lower()
+        distance = job.get("distance_to_major_city_km")
+        salary_values = [
+            job.get("published_salary_min"),
+            job.get("published_salary_max"),
+            job.get("estimated_salary_min"),
+            job.get("estimated_salary_max"),
+        ]
+        known_salaries = [
+            value
+            for value in salary_values
+            if isinstance(value, (int, float))
+        ]
+        company_size = str(
+            job.get("company_size", "Unknown")
+        ).strip().title()
+        source = str(job.get("source", "")).strip()
+
+        if keyword_terms and not all(
+            term in searchable_text
+            for term in keyword_terms
+        ):
+            continue
+        if location_term and location_term not in str(
+            job.get("location", "")
+        ).lower():
+            continue
+        if distance is not None and distance > radius_km:
+            continue
+        if known_salaries and max(known_salaries) < minimum_salary:
+            continue
+        if company_size not in company_sizes:
+            continue
+        if source not in sources:
+            continue
+
+        filtered_jobs.append(job)
+
+    return sorted(
+        filtered_jobs,
+        key=lambda job: job.get("discovery_score", 0),
+        reverse=True,
+    )
 
 
 # ------------------------------------------------------------
@@ -1306,9 +1417,10 @@ st.warning(
     "AI-generated application content must be reviewed before use."
 )
 
-profile_tab, job_tab, application_tab, history_tab = st.tabs(
+profile_tab, discovery_tab, job_tab, application_tab, history_tab = st.tabs(
     [
         "👤 Candidate Profile",
+        "🔎 Job Discovery",
         "🔎 Job Analysis",
         "📄 Application Package",
         "📚 Application History",
@@ -1877,12 +1989,16 @@ with job_tab:
             value=st.session_state.get(
                 "job_description_text",
                 "",
+                
             ),
             placeholder=(
                 "Paste the full job advertisement here..."
             ),
             key="job_description_input",
         )
+        st.session_state[
+        "job_description_text"
+        ] = job_description
 
         if st.button(
             "Analyse Job Description",
@@ -2725,3 +2841,662 @@ with history_tab:
             use_container_width=True,
             hide_index=True,
         )
+
+# ============================================================
+# JOB DISCOVERY TAB
+# ============================================================
+
+with discovery_tab:
+
+    st.header(
+        "Job Discovery"
+    )
+
+    st.write(
+        "Discover and rank suitable jobs "
+        "from multiple German job sources."
+    )
+
+
+    candidate_data = (
+        st.session_state.get(
+            "candidate_profile"
+        )
+    )
+
+
+    if not isinstance(
+        candidate_data,
+        dict,
+    ):
+
+        st.info(
+            "Load or analyse a candidate "
+            "profile before discovering jobs."
+        )
+
+
+    else:
+
+        st.subheader(
+            "Search Criteria"
+        )
+
+
+        keywords = st.text_input(
+            "Job keywords",
+            value=(
+                "Embedded Software Engineer"
+            ),
+            help=(
+                "Examples: Embedded Software Engineer, "
+                "C++ Developer, Systems Engineer"
+            ),
+        )
+
+
+        available_cities = [
+            "Berlin",
+            "Munich",
+            "Hamburg",
+            "Frankfurt",
+            "Stuttgart",
+            "Cologne",
+            "Dusseldorf",
+        ]
+
+
+        selected_cities = (
+            st.multiselect(
+                "Search around these cities",
+                options=available_cities,
+                default=[
+                    "Munich",
+                    "Stuttgart",
+                    "Frankfurt",
+                ],
+            )
+        )
+
+
+        col1, col2 = st.columns(
+            2
+        )
+
+
+        with col1:
+
+            radius_km = st.slider(
+                (
+                    "Maximum distance "
+                    "from major city"
+                ),
+                min_value=10,
+                max_value=100,
+                value=50,
+                step=10,
+            )
+
+
+        with col2:
+
+            minimum_salary = (
+                st.number_input(
+                    (
+                        "Minimum target salary "
+                        "(€ gross/year)"
+                    ),
+                    min_value=50000,
+                    max_value=200000,
+                    value=80000,
+                    step=5000,
+                )
+            )
+
+
+        st.subheader(
+            "Company Preference"
+        )
+
+
+        company_col1, company_col2 = (
+            st.columns(
+                2
+            )
+        )
+
+
+        with company_col1:
+
+            prefer_medium = (
+                st.checkbox(
+                    "Medium companies",
+                    value=True,
+                )
+            )
+
+
+        with company_col2:
+
+            prefer_large = (
+                st.checkbox(
+                    "Large companies",
+                    value=True,
+                )
+            )
+
+
+        st.subheader(
+            "Job Sources"
+        )
+
+
+        source_col1, source_col2, source_col3 = (
+            st.columns(
+                3
+            )
+        )
+
+
+        with source_col1:
+
+            use_jooble = st.checkbox(
+                "Jooble",
+                value=True,
+            )
+
+
+        with source_col2:
+
+            use_arbeitnow = (
+                st.checkbox(
+                    "Arbeitnow",
+                    value=True,
+                )
+            )
+
+
+        with source_col3:
+
+            use_ba = st.checkbox(
+                "Bundesagentur",
+                value=True,
+            )
+
+
+        selected_sources = []
+
+
+        if use_jooble:
+
+            selected_sources.append(
+                JoobleSource()
+            )
+
+
+        if use_arbeitnow:
+
+            selected_sources.append(
+                ArbeitnowSource()
+            )
+
+
+        if use_ba:
+
+            selected_sources.append(
+                BAJobsSource()
+            )
+
+
+        st.divider()
+
+
+        discover_button = (
+            st.button(
+                "Discover Jobs",
+                type="primary",
+            )
+        )
+
+
+        if discover_button:
+
+            if not keywords.strip():
+
+                st.warning(
+                    "Enter at least one "
+                    "job keyword."
+                )
+
+
+            elif not selected_cities:
+
+                st.warning(
+                    "Select at least one "
+                    "German city."
+                )
+
+
+            elif not selected_sources:
+
+                st.warning(
+                    "Select at least one "
+                    "job source."
+                )
+
+
+            elif (
+                not prefer_medium
+                and not prefer_large
+            ):
+
+                st.warning(
+                    "Select at least one "
+                    "company-size preference."
+                )
+
+
+            else:
+
+                try:
+
+                    with st.spinner(
+                        (
+                            "Searching, filtering "
+                            "and ranking jobs..."
+                        )
+                    ):
+
+                        jobs = discover_jobs(
+                            sources=(
+                                selected_sources
+                            ),
+                            candidate_data=(
+                                candidate_data
+                            ),
+                            keywords=(
+                                keywords
+                            ),
+                            locations=(
+                                selected_cities
+                            ),
+                            radius_km=float(
+                                radius_km
+                            ),
+                            minimum_salary=float(
+                                minimum_salary
+                            ),
+                        )
+
+
+                        jobs_as_dicts = [
+                            job.model_dump()
+                            for job in jobs
+                        ]
+
+
+                        st.session_state[
+                            "discovered_jobs"
+                        ] = (
+                            jobs_as_dicts
+                        )
+
+
+                        save_discovered_jobs(
+                            jobs_as_dicts
+                        )
+
+
+                    st.success(
+                        (
+                            f"{len(jobs)} "
+                            "suitable jobs found."
+                        )
+                    )
+
+
+                except Exception as error:
+
+                    st.error(
+                        "Job discovery failed."
+                    )
+
+                    with st.expander(
+                        "Technical details"
+                    ):
+
+                        st.code(
+                            str(error)
+                        )
+
+
+        discovered_jobs = (
+            st.session_state.get(
+                "discovered_jobs",
+                [],
+            )
+        )
+
+
+        if discovered_jobs:
+
+            st.divider()
+
+            st.subheader(
+                "Recommended Jobs"
+            )
+
+
+            st.caption(
+                (
+                    f"{len(discovered_jobs)} "
+                    "ranked jobs available"
+                )
+            )
+
+
+            for index, job in enumerate(
+                discovered_jobs
+            ):
+
+                with st.container(
+                    border=True
+                ):
+
+                    st.subheader(
+                        job.get(
+                            "title",
+                            "Unknown Job",
+                        )
+                    )
+
+
+                    st.write(
+                        (
+                            "**Company:** "
+                            f"{job.get('company', 'Unknown')}"
+                        )
+                    )
+
+
+                    st.write(
+                        (
+                            "**Location:** "
+                            f"{job.get('location', 'Unknown')}"
+                        )
+                    )
+
+
+                    st.write(
+                        (
+                            "**Source:** "
+                            f"{job.get('source', 'Unknown')}"
+                        )
+                    )
+
+
+                    nearest_city = (
+                        job.get(
+                            "nearest_major_city",
+                            "Unknown",
+                        )
+                    )
+
+
+                    distance = (
+                        job.get(
+                            "distance_to_major_city_km"
+                        )
+                    )
+
+
+                    st.write(
+                        (
+                            "**Nearest major city:** "
+                            f"{nearest_city}"
+                        )
+                    )
+
+
+                    if distance is not None:
+
+                        st.write(
+                            (
+                                "**Distance:** "
+                                f"{distance:.1f} km"
+                            )
+                        )
+
+
+                    st.write(
+                        (
+                            "**Company size:** "
+                            f"{job.get('company_size', 'Unknown')}"
+                        )
+                    )
+
+
+                    published_min = (
+                        job.get(
+                            "published_salary_min"
+                        )
+                    )
+
+                    published_max = (
+                        job.get(
+                            "published_salary_max"
+                        )
+                    )
+
+                    estimated_min = (
+                        job.get(
+                            "estimated_salary_min"
+                        )
+                    )
+
+                    estimated_max = (
+                        job.get(
+                            "estimated_salary_max"
+                        )
+                    )
+
+
+                    if (
+                        published_min
+                        is not None
+                        or published_max
+                        is not None
+                    ):
+
+                        min_text = (
+                            f"€{published_min:,.0f}"
+                            if published_min
+                            is not None
+                            else "Unknown"
+                        )
+
+                        max_text = (
+                            f"€{published_max:,.0f}"
+                            if published_max
+                            is not None
+                            else "Unknown"
+                        )
+
+                        st.write(
+                            (
+                                "**Published salary:** "
+                                f"{min_text} – {max_text}"
+                            )
+                        )
+
+
+                    elif (
+                        estimated_min
+                        is not None
+                        or estimated_max
+                        is not None
+                    ):
+
+                        min_text = (
+                            f"€{estimated_min:,.0f}"
+                            if estimated_min
+                            is not None
+                            else "Unknown"
+                        )
+
+                        max_text = (
+                            f"€{estimated_max:,.0f}"
+                            if estimated_max
+                            is not None
+                            else "Unknown"
+                        )
+
+                        st.write(
+                            (
+                                "**Estimated salary:** "
+                                f"{min_text} – {max_text}"
+                            )
+                        )
+
+                        st.caption(
+                            (
+                                "Estimated salary — "
+                                "not employer-published."
+                            )
+                        )
+
+
+                    else:
+
+                        st.write(
+                            "**Salary:** Unknown"
+                        )
+
+
+                    initial_fit = float(
+                        job.get(
+                            "initial_fit_score",
+                            0.0,
+                        )
+                    )
+
+                    discovery_score = float(
+                        job.get(
+                            "discovery_score",
+                            0.0,
+                        )
+                    )
+
+
+                    score_col1, score_col2 = (
+                        st.columns(
+                            2
+                        )
+                    )
+
+
+                    with score_col1:
+
+                        st.metric(
+                            "Initial Fit",
+                            (
+                                f"{initial_fit:.1f}%"
+                            ),
+                        )
+
+
+                    with score_col2:
+
+                        st.metric(
+                            "Discovery Score",
+                            (
+                                f"{discovery_score:.1f}%"
+                            ),
+                        )
+
+
+                    button_col1, button_col2 = (
+                        st.columns(
+                            2
+                        )
+                    )
+
+
+                    job_url = job.get(
+                        "url",
+                        "",
+                    )
+
+
+                    with button_col1:
+
+                        if job_url:
+
+                            st.link_button(
+                                "Open Original Job",
+                                job_url,
+                                use_container_width=True,
+                            )
+
+
+                    with button_col2:
+
+                        if st.button(
+                            "Analyse Job",
+                            key=(
+                                "analyse_discovered_"
+                                f"{index}"
+                            ),
+                            use_container_width=True,
+                        ):
+
+                            st.session_state[
+                                "selected_discovered_job"
+                            ] = job
+
+
+                            st.session_state[
+                                "job_description_text"
+                            ] = job.get(
+                                "description",
+                                "",
+                            )
+
+
+                            # Clear data belonging
+                            # to the previously
+                            # analysed vacancy.
+                            st.session_state[
+                                "job_profile"
+                            ] = None
+
+                            st.session_state[
+                                "match_result"
+                            ] = None
+
+                            st.session_state[
+                                "tailored_cv"
+                            ] = None
+
+                            st.session_state[
+                                "cover_letter"
+                            ] = None
+
+                            st.session_state[
+                                "interview_preparation"
+                            ] = None
+
+
+                            st.success(
+                                (
+                                    "Job loaded into "
+                                    "Job Analysis."
+                                )
+                            )
+
+                            st.info(
+                                (
+                                    "Open the Job Analysis "
+                                    "tab to continue."
+                                )
+                            )

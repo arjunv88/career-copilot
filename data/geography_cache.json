@@ -18,5 +18,21 @@
   "karlsruhe, germany": {
     "latitude": 49.0068705,
     "longitude": 8.4034195
+  },
+  "cambridge, germany": {
+    "latitude": 52.399767,
+    "longitude": 9.7477545
+  },
+  "ditzingen, germany": {
+    "latitude": 48.8263983,
+    "longitude": 9.0658446
+  },
+  "schwaikheim, germany": {
+    "latitude": 48.8748352,
+    "longitude": 9.3517336
+  },
+  "oberkochen, germany": {
+    "latitude": 48.7810194,
+    "longitude": 10.1012913
   }
 }
