@@ -12,13 +12,6 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel
 
-from dotenv import load_dotenv
-
-load_dotenv()
-
-from storage.discovered_jobs import (
-    load_discovered_jobs,
-)
 
 from discovery.agent import (
     discover_jobs,
@@ -39,6 +32,10 @@ from scrapers.sources.arbeitnow import (
 
 from scrapers.sources.ba_jobs import (
     BAJobsSource,
+)
+
+from scrapers.details.company_job_details import (
+    CompanyJobDetailScraper,
 )
 
 # ------------------------------------------------------------
@@ -85,6 +82,21 @@ DISCOVERY_SOURCES = [
 DISCOVERY_COMPANY_SIZES = [
     "Medium",
     "Large",
+]
+
+
+MAIN_TAB_PROFILE = "👤 Candidate Profile"
+MAIN_TAB_DISCOVERY = "🔎 Job Discovery"
+MAIN_TAB_ANALYSIS = "🔎 Job Analysis"
+MAIN_TAB_APPLICATION = "📄 Application Package"
+MAIN_TAB_HISTORY = "📚 Application History"
+
+MAIN_TAB_LABELS = [
+    MAIN_TAB_PROFILE,
+    MAIN_TAB_DISCOVERY,
+    MAIN_TAB_ANALYSIS,
+    MAIN_TAB_APPLICATION,
+    MAIN_TAB_HISTORY,
 ]
 
 
@@ -195,9 +207,12 @@ SESSION_DEFAULTS = {
     "discovered_jobs": [],
     "filtered_jobs": [],
     "selected_discovered_job": None,
-    "discovered_jobs": [],
-    "selected_discovered_job": None,
-
+    "pending_discovered_job": None,
+    "pending_discovered_job_auto_analyse": False,
+    "auto_analyse_requested": False,
+    "job_transfer_notice": "",
+    "pending_main_tab": None,
+    "discovered_jobs_loaded_from_disk": False,
 }
 
 
@@ -221,13 +236,243 @@ def clear_application_outputs():
 
 def clear_job_and_application_outputs():
     """
-    Use this when the candidate changes. A match generated for the old
-    candidate must not remain attached to the new candidate.
+    Use this when the candidate changes. Clear the current job, the Job
+    Analysis widget state, queued navigation and all downstream outputs.
     """
 
     st.session_state["job_profile"] = None
     st.session_state["job_description_text"] = ""
+    st.session_state["selected_discovered_job"] = None
+    st.session_state["pending_discovered_job"] = None
+    st.session_state["pending_discovered_job_auto_analyse"] = False
+    st.session_state["auto_analyse_requested"] = False
+    st.session_state["job_transfer_notice"] = ""
+    st.session_state["pending_main_tab"] = None
+    st.session_state.pop("job_description_input", None)
+
     clear_application_outputs()
+
+
+def queue_discovered_job_for_analysis(
+    job: dict,
+    *,
+    auto_analyse: bool = False,
+    notice: str = "",
+):
+    """
+    Queue a vacancy for transfer into Job Analysis on the next Streamlit run.
+
+    The transfer is deliberately deferred because the Job Analysis text-area
+    widget may already have been created during the current run.
+    """
+
+    if not isinstance(job, dict):
+        raise TypeError(
+            "A discovered job must be a dictionary."
+        )
+
+    st.session_state["pending_discovered_job"] = job
+    st.session_state["pending_discovered_job_auto_analyse"] = bool(
+        auto_analyse
+    )
+    st.session_state["job_transfer_notice"] = str(
+        notice or ""
+    ).strip()
+    st.session_state["pending_main_tab"] = MAIN_TAB_ANALYSIS
+
+
+def apply_pending_discovered_job_transfer():
+    """
+    Transfer the queued vacancy before widgets are created.
+
+    Both the canonical description state and the Streamlit text-area widget
+    state are synchronized here.  If requested, automatic AI/C++ analysis is
+    armed for the Job Analysis tab.
+    """
+
+    pending_job = st.session_state.get(
+        "pending_discovered_job"
+    )
+
+    if not isinstance(
+        pending_job,
+        dict,
+    ):
+        return
+
+    description = str(
+        pending_job.get(
+            "description",
+            "",
+        )
+        or ""
+    ).strip()
+
+    auto_analyse = bool(
+        st.session_state.get(
+            "pending_discovered_job_auto_analyse",
+            False,
+        )
+    )
+
+    st.session_state[
+        "selected_discovered_job"
+    ] = pending_job
+
+    st.session_state[
+        "job_description_text"
+    ] = description
+
+    st.session_state[
+        "job_description_input"
+    ] = description
+
+    st.session_state[
+        "job_profile"
+    ] = None
+
+    clear_application_outputs()
+
+    st.session_state[
+        "auto_analyse_requested"
+    ] = auto_analyse
+
+    st.session_state[
+        "pending_discovered_job"
+    ] = None
+
+    st.session_state[
+        "pending_discovered_job_auto_analyse"
+    ] = False
+
+
+def update_discovered_job_in_state(
+    updated_job: dict,
+):
+    """
+    Replace a discovered job in session state after detailed-description
+    enrichment and persist the updated discovery list.
+    """
+
+    if not isinstance(
+        updated_job,
+        dict,
+    ):
+        raise TypeError(
+            "updated_job must be a dictionary."
+        )
+
+    current_jobs = list(
+        st.session_state.get(
+            "discovered_jobs",
+            [],
+        )
+        or []
+    )
+
+    updated_id = str(
+        updated_job.get(
+            "job_id",
+            "",
+        )
+        or ""
+    ).strip()
+
+    replaced = False
+
+    for index, existing_job in enumerate(
+        current_jobs
+    ):
+        if not isinstance(
+            existing_job,
+            dict,
+        ):
+            continue
+
+        existing_id = str(
+            existing_job.get(
+                "job_id",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if (
+            updated_id
+            and existing_id == updated_id
+        ):
+            current_jobs[
+                index
+            ] = updated_job
+            replaced = True
+            break
+
+    if not replaced:
+        # Fallback for older stored jobs without a stable job_id.
+        for index, existing_job in enumerate(
+            current_jobs
+        ):
+            if not isinstance(
+                existing_job,
+                dict,
+            ):
+                continue
+
+            same_identity = (
+                str(existing_job.get("title", "")).strip().lower()
+                == str(updated_job.get("title", "")).strip().lower()
+                and str(existing_job.get("company", "")).strip().lower()
+                == str(updated_job.get("company", "")).strip().lower()
+                and str(existing_job.get("location", "")).strip().lower()
+                == str(updated_job.get("location", "")).strip().lower()
+            )
+
+            if same_identity:
+                current_jobs[
+                    index
+                ] = updated_job
+                replaced = True
+                break
+
+    if not replaced:
+        current_jobs.append(
+            updated_job
+        )
+
+    st.session_state[
+        "discovered_jobs"
+    ] = current_jobs
+
+    save_discovered_jobs(
+        current_jobs
+    )
+
+
+def restore_discovered_jobs_from_disk_once():
+    """
+    Restore persisted discovery results once per Streamlit session.
+    """
+
+    if st.session_state.get(
+        "discovered_jobs_loaded_from_disk",
+        False,
+    ):
+        return
+
+    st.session_state["discovered_jobs_loaded_from_disk"] = True
+
+    if st.session_state.get("discovered_jobs"):
+        return
+
+    try:
+        saved_jobs = load_discovered_jobs()
+
+        if isinstance(saved_jobs, list):
+            st.session_state["discovered_jobs"] = saved_jobs
+
+    except Exception:
+        # Persistence should never stop the main application from loading.
+        pass
 
 
 def filter_stored_discovered_jobs(
@@ -667,6 +912,71 @@ def calculate_cpp_match(
             result.missing_skills
         ),
     }
+
+
+
+def analyse_job_description_and_match(
+    candidate_data: dict,
+    job_description: str,
+) -> tuple[dict, dict]:
+    """
+    Run the existing AI job parser followed by the deterministic C++ matcher.
+
+    This function is shared by automatic shortlist analysis and the manual
+    'Analyse Job Description' button so both paths behave identically.
+    """
+
+    clean_description = str(
+        job_description or ""
+    ).strip()
+
+    if not clean_description:
+        raise ValueError(
+            "The job description is empty."
+        )
+
+    if len(
+        clean_description
+    ) < 200:
+        raise ValueError(
+            "The job description is too short for reliable analysis."
+        )
+
+    job_profile = create_job_profile(
+        clean_description
+    )
+
+    job_data = job_profile.model_dump()
+
+    match_data = calculate_cpp_match(
+        candidate_data,
+        job_data,
+    )
+
+    st.session_state[
+        "job_profile"
+    ] = job_data
+
+    st.session_state[
+        "job_description_text"
+    ] = clean_description
+
+    st.session_state[
+        "match_result"
+    ] = match_data
+
+    clear_application_outputs()
+
+    # clear_application_outputs() also clears match_result, therefore restore
+    # the newly calculated match after clearing stale generated documents.
+    st.session_state[
+        "match_result"
+    ] = match_data
+
+    return (
+        job_data,
+        match_data,
+    )
 
 
 # ------------------------------------------------------------
@@ -1405,6 +1715,10 @@ st.set_page_config(
 
 initialize_session_state()
 
+# Apply queued discovery -> analysis transfers before any widgets exist.
+apply_pending_discovered_job_transfer()
+restore_discovered_jobs_from_disk_once()
+
 st.title(
     "Career Copilot"
 )
@@ -1417,14 +1731,30 @@ st.warning(
     "AI-generated application content must be reviewed before use."
 )
 
+requested_main_tab = st.session_state.pop(
+    "pending_main_tab",
+    None,
+)
+
+if requested_main_tab in MAIN_TAB_LABELS:
+    # Streamlit >= 1.55 supports keyed tabs. Because this assignment occurs
+    # before st.tabs() is created, it safely changes the selected tab.
+    st.session_state[
+        "main_navigation_tab"
+    ] = requested_main_tab
+
+elif (
+    "main_navigation_tab"
+    not in st.session_state
+):
+    st.session_state[
+        "main_navigation_tab"
+    ] = MAIN_TAB_PROFILE
+
 profile_tab, discovery_tab, job_tab, application_tab, history_tab = st.tabs(
-    [
-        "👤 Candidate Profile",
-        "🔎 Job Discovery",
-        "🔎 Job Analysis",
-        "📄 Application Package",
-        "📚 Application History",
-    ]
+    MAIN_TAB_LABELS,
+    key="main_navigation_tab",
+    on_change="rerun",
 )
 
 
@@ -1983,22 +2313,147 @@ with job_tab:
             "Candidate profile loaded."
         )
 
+        selected_job = st.session_state.get(
+            "selected_discovered_job"
+        )
+
+        if isinstance(selected_job, dict):
+            selected_title = selected_job.get(
+                "title",
+                "Unknown role",
+            )
+            selected_company = selected_job.get(
+                "company",
+                "Unknown company",
+            )
+            selected_source = selected_job.get(
+                "source",
+                "Unknown source",
+            )
+
+            st.info(
+                "Loaded from Job Discovery: "
+                f"{selected_title} — {selected_company} "
+                f"({selected_source})"
+            )
+
+            company_job_url = str(
+                selected_job.get(
+                    "company_url",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            if company_job_url:
+                st.link_button(
+                    "Open Company Job Page",
+                    company_job_url,
+                )
+
+        transfer_notice = str(
+            st.session_state.get(
+                "job_transfer_notice",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if transfer_notice:
+            st.info(
+                transfer_notice
+            )
+
+        if "job_description_input" not in st.session_state:
+            st.session_state["job_description_input"] = (
+                st.session_state.get(
+                    "job_description_text",
+                    "",
+                )
+            )
+
         job_description = st.text_area(
             "Job description",
             height=400,
-            value=st.session_state.get(
-                "job_description_text",
-                "",
-                
-            ),
             placeholder=(
                 "Paste the full job advertisement here..."
             ),
             key="job_description_input",
         )
+
         st.session_state[
-        "job_description_text"
+            "job_description_text"
         ] = job_description
+
+        if (
+            isinstance(selected_job, dict)
+            and len(job_description.strip()) < 200
+        ):
+            st.warning(
+                "This source returned only a short description/snippet. "
+                "Open the original vacancy and paste the complete job "
+                "advertisement before running detailed AI analysis."
+            )
+
+        auto_analyse_requested = bool(
+            st.session_state.get(
+                "auto_analyse_requested",
+                False,
+            )
+        )
+
+        if auto_analyse_requested:
+            # Clear before calling external services so a later Streamlit
+            # rerun cannot accidentally submit the same job twice.
+            st.session_state[
+                "auto_analyse_requested"
+            ] = False
+
+            clean_job_description = (
+                job_description.strip()
+            )
+
+            if len(
+                clean_job_description
+            ) < 200:
+                st.warning(
+                    "The detailed company description could not be loaded "
+                    "completely. Review the available text or paste the full "
+                    "vacancy before analysing it."
+                )
+
+            else:
+                st.info(
+                    "Job is being analysed. Career Copilot is extracting "
+                    "the requirements and running the C++ compatibility "
+                    "analysis now."
+                )
+
+                with st.spinner(
+                    "Analysing job description and compatibility..."
+                ):
+                    try:
+                        analyse_job_description_and_match(
+                            candidate_data,
+                            clean_job_description,
+                        )
+
+                        st.session_state[
+                            "job_transfer_notice"
+                        ] = (
+                            "Detailed job description loaded from the "
+                            "company page and analysed successfully."
+                        )
+
+                        st.success(
+                            "Job analysis completed successfully."
+                        )
+
+                    except Exception as error:
+                        show_error(
+                            "Automatic job analysis failed.",
+                            error,
+                        )
 
         if st.button(
             "Analyse Job Description",
@@ -2029,38 +2484,10 @@ with job_tab:
                 ):
 
                     try:
-                        job_profile = (
-                            create_job_profile(
-                                clean_job_description
-                            )
+                        analyse_job_description_and_match(
+                            candidate_data,
+                            clean_job_description,
                         )
-
-                        st.session_state[
-                            "job_profile"
-                        ] = (
-                            job_profile.model_dump()
-                        )
-
-                        st.session_state[
-                            "job_description_text"
-                        ] = clean_job_description
-
-                        clear_application_outputs()
-
-                        # Calculate the deterministic C++ match immediately
-                        # after the structured job profile is available.
-                        match_result = (
-                            calculate_cpp_match(
-                                candidate_data,
-                                st.session_state[
-                                    "job_profile"
-                                ],
-                            )
-                        )
-
-                        st.session_state[
-                            "match_result"
-                        ] = match_result
 
                         st.success(
                             "Job description analysed successfully."
@@ -3442,61 +3869,117 @@ with discovery_tab:
                     with button_col2:
 
                         if st.button(
-                            "Analyse Job",
+                            "Shortlist for Analysis",
                             key=(
-                                "analyse_discovered_"
+                                "shortlist_discovered_"
                                 f"{index}"
                             ),
                             use_container_width=True,
                         ):
 
-                            st.session_state[
-                                "selected_discovered_job"
-                            ] = job
+                            try:
+                                with st.spinner(
+                                    "Retrieving the detailed job description "
+                                    "from the company website..."
+                                ):
+                                    detail_scraper = (
+                                        CompanyJobDetailScraper()
+                                    )
 
+                                    detail_result = (
+                                        detail_scraper.fetch_for_job(
+                                            job
+                                        )
+                                    )
 
-                            st.session_state[
-                                "job_description_text"
-                            ] = job.get(
-                                "description",
-                                "",
-                            )
-
-
-                            # Clear data belonging
-                            # to the previously
-                            # analysed vacancy.
-                            st.session_state[
-                                "job_profile"
-                            ] = None
-
-                            st.session_state[
-                                "match_result"
-                            ] = None
-
-                            st.session_state[
-                                "tailored_cv"
-                            ] = None
-
-                            st.session_state[
-                                "cover_letter"
-                            ] = None
-
-                            st.session_state[
-                                "interview_preparation"
-                            ] = None
-
-
-                            st.success(
-                                (
-                                    "Job loaded into "
-                                    "Job Analysis."
+                                enriched_job = dict(
+                                    job
                                 )
-                            )
 
-                            st.info(
-                                (
-                                    "Open the Job Analysis "
-                                    "tab to continue."
+                                detailed_description = str(
+                                    detail_result.description
+                                    or ""
+                                ).strip()
+
+                                if detailed_description:
+                                    enriched_job[
+                                        "description"
+                                    ] = detailed_description
+
+                                enriched_job[
+                                    "company_url"
+                                ] = (
+                                    detail_result.company_url
                                 )
-                            )
+
+                                metadata = dict(
+                                    enriched_job.get(
+                                        "metadata",
+                                        {},
+                                    )
+                                    or {}
+                                )
+
+                                metadata[
+                                    "detail_fetch"
+                                ] = (
+                                    detail_result.to_dict()
+                                )
+
+                                enriched_job[
+                                    "metadata"
+                                ] = metadata
+
+                                update_discovered_job_in_state(
+                                    enriched_job
+                                )
+
+                                employer_detail_loaded = (
+                                    bool(
+                                        detail_result.company_url
+                                    )
+                                    and not detail_result.used_fallback
+                                    and len(
+                                        detailed_description
+                                    ) >= 200
+                                )
+
+                                if employer_detail_loaded:
+                                    notice = (
+                                        "Detailed job description retrieved "
+                                        "from the company website. "
+                                        "Job is being analysed now."
+                                    )
+                                else:
+                                    notice = (
+                                        "The company website could not provide "
+                                        "a complete machine-readable vacancy. "
+                                        "The best available description has "
+                                        "been loaded for review."
+                                    )
+
+                                    if detail_result.warning:
+                                        notice += (
+                                            " "
+                                            + detail_result.warning
+                                        )
+
+                                queue_discovered_job_for_analysis(
+                                    enriched_job,
+                                    auto_analyse=(
+                                        employer_detail_loaded
+                                    ),
+                                    notice=notice,
+                                )
+
+                                # On the next run the queued transfer happens
+                                # before widgets exist, and st.tabs(default=...)
+                                # opens Job Analysis automatically.
+                                st.rerun()
+
+                            except Exception as error:
+                                show_error(
+                                    "The job could not be shortlisted or "
+                                    "enriched from the company website.",
+                                    error,
+                                )
