@@ -1,5 +1,8 @@
 import json
 import os
+import sys
+import importlib
+import importlib.util
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -12,20 +15,274 @@ from dotenv import load_dotenv
 from openai import OpenAI
 from pydantic import BaseModel
 
+
+from discovery.agent import (
+    discover_jobs,
+)
+
+from storage.discovered_jobs import (
+    save_discovered_jobs,
+    load_discovered_jobs,
+)
+
+from scrapers.sources.jooble import (
+    JoobleSource,
+)
+
+from scrapers.sources.arbeitnow import (
+    ArbeitnowSource,
+)
+
+from scrapers.sources.ba_jobs import (
+    BAJobsSource,
+)
+
+from scrapers.details.company_job_details import (
+    CompanyJobDetailScraper,
+)
+
 # ------------------------------------------------------------
-# OPTIONAL C++ MODULE IMPORT
+# C++ MATCH ENGINE IMPORT
 # ------------------------------------------------------------
 
-try:
-    import match_engine
+MATCH_ENGINE_AVAILABLE = False
+MATCH_ENGINE_IMPORT_ERROR = None
+MATCH_ENGINE_MODULE_PATH = None
 
-    MATCH_ENGINE_AVAILABLE = True
-    MATCH_ENGINE_IMPORT_ERROR = None
 
-except Exception as import_error:
-    match_engine = None
+def _candidate_match_engine_directories(
+    project_root: Path,
+) -> list[Path]:
+    """
+    Return likely directories containing the compiled pybind11 extension.
+
+    This supports the common CMake layouts used during Career Copilot
+    development, including:
+        project/
+        project/build/
+        project/build/Release/
+        project/cpp/build/
+        project/cpp/build/Release/
+
+    It also includes the current working directory because Streamlit may be
+    started from a different folder than the file itself.
+    """
+
+    candidates = [
+        project_root,
+        project_root / "build",
+        project_root / "build" / "Release",
+        project_root / "build" / "Debug",
+        project_root / "cpp",
+        project_root / "cpp" / "build",
+        project_root / "cpp" / "build" / "Release",
+        project_root / "cpp" / "build" / "Debug",
+        Path.cwd(),
+        Path.cwd() / "build",
+        Path.cwd() / "build" / "Release",
+        Path.cwd() / "build" / "Debug",
+    ]
+
+    unique = []
+    seen = set()
+
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except Exception:
+            resolved = candidate
+
+        key = str(resolved).lower()
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        if resolved.exists():
+            unique.append(resolved)
+
+    return unique
+
+
+def _find_compiled_match_engine(
+    search_directories: list[Path],
+) -> Path | None:
+    """
+    Search a bounded set of project/build directories for the compiled
+    extension.
+
+    Windows pybind11 output normally looks like:
+        match_engine.cp312-win_amd64.pyd
+
+    Linux/macOS builds normally use .so.
+    """
+
+    patterns = (
+        "match_engine*.pyd",
+        "match_engine*.so",
+        "match_engine*.dll",
+        "match_engine*.dylib",
+    )
+
+    for directory in search_directories:
+        for pattern in patterns:
+            try:
+                matches = sorted(
+                    directory.glob(pattern)
+                )
+            except Exception:
+                matches = []
+
+            if matches:
+                return matches[0]
+
+    # One-level recursive search under build-style directories only.
+    for directory in search_directories:
+        if "build" not in directory.name.lower():
+            continue
+
+        for pattern in patterns:
+            try:
+                matches = sorted(
+                    directory.rglob(pattern)
+                )
+            except Exception:
+                matches = []
+
+            if matches:
+                return matches[0]
+
+    return None
+
+
+def load_match_engine():
+    """
+    Load the pybind11 C++ extension robustly.
+
+    First try the normal Python import. If that fails, search the common CMake
+    build locations and add the extension's directory to sys.path before
+    importing again.
+
+    This keeps the existing C++ implementation as the source of truth; there
+    is deliberately no silent Python compatibility fallback.
+    """
+
+    global MATCH_ENGINE_AVAILABLE
+    global MATCH_ENGINE_IMPORT_ERROR
+    global MATCH_ENGINE_MODULE_PATH
+
+    first_error = None
+
+    try:
+        module = importlib.import_module(
+            "match_engine"
+        )
+
+        MATCH_ENGINE_AVAILABLE = True
+        MATCH_ENGINE_IMPORT_ERROR = None
+        MATCH_ENGINE_MODULE_PATH = getattr(
+            module,
+            "__file__",
+            None,
+        )
+
+        return module
+
+    except Exception as error:
+        first_error = error
+
+    project_root = Path(
+        __file__
+    ).resolve().parent
+
+    search_directories = (
+        _candidate_match_engine_directories(
+            project_root
+        )
+    )
+
+    extension_path = (
+        _find_compiled_match_engine(
+            search_directories
+        )
+    )
+
+    if extension_path is not None:
+        extension_directory = str(
+            extension_path.parent
+        )
+
+        if (
+            extension_directory
+            not in sys.path
+        ):
+            sys.path.insert(
+                0,
+                extension_directory,
+            )
+
+        importlib.invalidate_caches()
+
+        try:
+            # Remove a failed/partial import if one exists.
+            sys.modules.pop(
+                "match_engine",
+                None,
+            )
+
+            module = importlib.import_module(
+                "match_engine"
+            )
+
+            MATCH_ENGINE_AVAILABLE = True
+            MATCH_ENGINE_IMPORT_ERROR = None
+            MATCH_ENGINE_MODULE_PATH = getattr(
+                module,
+                "__file__",
+                str(extension_path),
+            )
+
+            return module
+
+        except Exception as second_error:
+            MATCH_ENGINE_IMPORT_ERROR = (
+                "The compiled match_engine extension was found at "
+                f"'{extension_path}', but Python could not load it. "
+                f"Initial import error: {first_error}. "
+                f"Load error: {second_error}. "
+                "This usually means the extension was built for a different "
+                "Python version/architecture or one of its runtime DLLs is "
+                "missing."
+            )
+
+            MATCH_ENGINE_AVAILABLE = False
+            MATCH_ENGINE_MODULE_PATH = str(
+                extension_path
+            )
+
+            return None
+
+    searched = ", ".join(
+        str(path)
+        for path in search_directories
+    )
+
+    MATCH_ENGINE_IMPORT_ERROR = (
+        "No compiled match_engine extension could be imported or found. "
+        f"Initial import error: {first_error}. "
+        f"Searched: {searched}. "
+        "Build the pybind11 target for the SAME Python environment used to "
+        "run Streamlit, then restart the app."
+    )
+
     MATCH_ENGINE_AVAILABLE = False
-    MATCH_ENGINE_IMPORT_ERROR = str(import_error)
+    MATCH_ENGINE_MODULE_PATH = None
+
+    return None
+
+
+match_engine = load_match_engine()
 
 
 # ------------------------------------------------------------
@@ -46,6 +303,32 @@ DEFAULT_PROFILE_PATH = Path(
 APPLICATIONS_FOLDER = Path(
     "data/applications"
 )
+
+DISCOVERY_SOURCES = [
+    "Jooble",
+    "Arbeitnow",
+    "Bundesagentur",
+]
+
+DISCOVERY_COMPANY_SIZES = [
+    "Medium",
+    "Large",
+]
+
+
+MAIN_TAB_PROFILE = "👤 Candidate Profile"
+MAIN_TAB_DISCOVERY = "🔎 Job Discovery"
+MAIN_TAB_ANALYSIS = "🔎 Job Analysis"
+MAIN_TAB_APPLICATION = "📄 Application Package"
+MAIN_TAB_HISTORY = "📚 Application History"
+
+MAIN_TAB_LABELS = [
+    MAIN_TAB_PROFILE,
+    MAIN_TAB_DISCOVERY,
+    MAIN_TAB_ANALYSIS,
+    MAIN_TAB_APPLICATION,
+    MAIN_TAB_HISTORY,
+]
 
 
 # ------------------------------------------------------------
@@ -152,6 +435,15 @@ SESSION_DEFAULTS = {
     "tailored_cv": None,
     "cover_letter": None,
     "interview_preparation": None,
+    "discovered_jobs": [],
+    "filtered_jobs": [],
+    "selected_discovered_job": None,
+    "pending_discovered_job": None,
+    "pending_discovered_job_auto_analyse": False,
+    "auto_analyse_requested": False,
+    "job_transfer_notice": "",
+    "pending_main_tab": None,
+    "discovered_jobs_loaded_from_disk": False,
 }
 
 
@@ -175,13 +467,312 @@ def clear_application_outputs():
 
 def clear_job_and_application_outputs():
     """
-    Use this when the candidate changes. A match generated for the old
-    candidate must not remain attached to the new candidate.
+    Use this when the candidate changes. Clear the current job, the Job
+    Analysis widget state, queued navigation and all downstream outputs.
     """
 
     st.session_state["job_profile"] = None
     st.session_state["job_description_text"] = ""
+    st.session_state["selected_discovered_job"] = None
+    st.session_state["pending_discovered_job"] = None
+    st.session_state["pending_discovered_job_auto_analyse"] = False
+    st.session_state["auto_analyse_requested"] = False
+    st.session_state["job_transfer_notice"] = ""
+    st.session_state["pending_main_tab"] = None
+    st.session_state.pop("job_description_input", None)
+
     clear_application_outputs()
+
+
+def queue_discovered_job_for_analysis(
+    job: dict,
+    *,
+    auto_analyse: bool = False,
+    notice: str = "",
+):
+    """
+    Queue a vacancy for transfer into Job Analysis on the next Streamlit run.
+
+    The transfer is deliberately deferred because the Job Analysis text-area
+    widget may already have been created during the current run.
+    """
+
+    if not isinstance(job, dict):
+        raise TypeError(
+            "A discovered job must be a dictionary."
+        )
+
+    st.session_state["pending_discovered_job"] = job
+    st.session_state["pending_discovered_job_auto_analyse"] = bool(
+        auto_analyse
+    )
+    st.session_state["job_transfer_notice"] = str(
+        notice or ""
+    ).strip()
+    st.session_state["pending_main_tab"] = MAIN_TAB_ANALYSIS
+
+
+def apply_pending_discovered_job_transfer():
+    """
+    Transfer the queued vacancy before widgets are created.
+
+    Both the canonical description state and the Streamlit text-area widget
+    state are synchronized here.  If requested, automatic AI/C++ analysis is
+    armed for the Job Analysis tab.
+    """
+
+    pending_job = st.session_state.get(
+        "pending_discovered_job"
+    )
+
+    if not isinstance(
+        pending_job,
+        dict,
+    ):
+        return
+
+    description = str(
+        pending_job.get(
+            "description",
+            "",
+        )
+        or ""
+    ).strip()
+
+    auto_analyse = bool(
+        st.session_state.get(
+            "pending_discovered_job_auto_analyse",
+            False,
+        )
+    )
+
+    st.session_state[
+        "selected_discovered_job"
+    ] = pending_job
+
+    st.session_state[
+        "job_description_text"
+    ] = description
+
+    st.session_state[
+        "job_description_input"
+    ] = description
+
+    st.session_state[
+        "job_profile"
+    ] = None
+
+    clear_application_outputs()
+
+    st.session_state[
+        "auto_analyse_requested"
+    ] = auto_analyse
+
+    st.session_state[
+        "pending_discovered_job"
+    ] = None
+
+    st.session_state[
+        "pending_discovered_job_auto_analyse"
+    ] = False
+
+
+def update_discovered_job_in_state(
+    updated_job: dict,
+):
+    """
+    Replace a discovered job in session state after detailed-description
+    enrichment and persist the updated discovery list.
+    """
+
+    if not isinstance(
+        updated_job,
+        dict,
+    ):
+        raise TypeError(
+            "updated_job must be a dictionary."
+        )
+
+    current_jobs = list(
+        st.session_state.get(
+            "discovered_jobs",
+            [],
+        )
+        or []
+    )
+
+    updated_id = str(
+        updated_job.get(
+            "job_id",
+            "",
+        )
+        or ""
+    ).strip()
+
+    replaced = False
+
+    for index, existing_job in enumerate(
+        current_jobs
+    ):
+        if not isinstance(
+            existing_job,
+            dict,
+        ):
+            continue
+
+        existing_id = str(
+            existing_job.get(
+                "job_id",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if (
+            updated_id
+            and existing_id == updated_id
+        ):
+            current_jobs[
+                index
+            ] = updated_job
+            replaced = True
+            break
+
+    if not replaced:
+        # Fallback for older stored jobs without a stable job_id.
+        for index, existing_job in enumerate(
+            current_jobs
+        ):
+            if not isinstance(
+                existing_job,
+                dict,
+            ):
+                continue
+
+            same_identity = (
+                str(existing_job.get("title", "")).strip().lower()
+                == str(updated_job.get("title", "")).strip().lower()
+                and str(existing_job.get("company", "")).strip().lower()
+                == str(updated_job.get("company", "")).strip().lower()
+                and str(existing_job.get("location", "")).strip().lower()
+                == str(updated_job.get("location", "")).strip().lower()
+            )
+
+            if same_identity:
+                current_jobs[
+                    index
+                ] = updated_job
+                replaced = True
+                break
+
+    if not replaced:
+        current_jobs.append(
+            updated_job
+        )
+
+    st.session_state[
+        "discovered_jobs"
+    ] = current_jobs
+
+    save_discovered_jobs(
+        current_jobs
+    )
+
+
+def restore_discovered_jobs_from_disk_once():
+    """
+    Restore persisted discovery results once per Streamlit session.
+    """
+
+    if st.session_state.get(
+        "discovered_jobs_loaded_from_disk",
+        False,
+    ):
+        return
+
+    st.session_state["discovered_jobs_loaded_from_disk"] = True
+
+    if st.session_state.get("discovered_jobs"):
+        return
+
+    try:
+        saved_jobs = load_discovered_jobs()
+
+        if isinstance(saved_jobs, list):
+            st.session_state["discovered_jobs"] = saved_jobs
+
+    except Exception:
+        # Persistence should never stop the main application from loading.
+        pass
+
+
+def filter_stored_discovered_jobs(
+    jobs: list[dict],
+    keywords: str,
+    location: str,
+    radius_km: float,
+    minimum_salary: float,
+    company_sizes: list[str],
+    sources: list[str],
+) -> list[dict]:
+    keyword_terms = [
+        term.lower()
+        for term in keywords.split()
+        if term.strip()
+    ]
+    location_term = location.strip().lower()
+    filtered_jobs = []
+
+    for job in jobs:
+        searchable_text = " ".join(
+            [
+                str(job.get("title", "")),
+                str(job.get("company", "")),
+                str(job.get("description", "")),
+            ]
+        ).lower()
+        distance = job.get("distance_to_major_city_km")
+        salary_values = [
+            job.get("published_salary_min"),
+            job.get("published_salary_max"),
+            job.get("estimated_salary_min"),
+            job.get("estimated_salary_max"),
+        ]
+        known_salaries = [
+            value
+            for value in salary_values
+            if isinstance(value, (int, float))
+        ]
+        company_size = str(
+            job.get("company_size", "Unknown")
+        ).strip().title()
+        source = str(job.get("source", "")).strip()
+
+        if keyword_terms and not all(
+            term in searchable_text
+            for term in keyword_terms
+        ):
+            continue
+        if location_term and location_term not in str(
+            job.get("location", "")
+        ).lower():
+            continue
+        if distance is not None and distance > radius_km:
+            continue
+        if known_salaries and max(known_salaries) < minimum_salary:
+            continue
+        if company_size not in company_sizes:
+            continue
+        if source not in sources:
+            continue
+
+        filtered_jobs.append(job)
+
+    return sorted(
+        filtered_jobs,
+        key=lambda job: job.get("discovery_score", 0),
+        reverse=True,
+    )
 
 
 # ------------------------------------------------------------
@@ -513,33 +1104,64 @@ def calculate_cpp_match(
     candidate_data: dict,
     job_data: dict,
 ) -> dict:
+    """
+    Run the existing pybind11 C++ compatibility engine.
 
-    if not MATCH_ENGINE_AVAILABLE:
+    No Python fallback is used: if the compiled extension is unavailable,
+    fail with a detailed diagnostic so the environment/build problem is
+    visible instead of silently changing matching behavior.
+    """
+
+    if (
+        not MATCH_ENGINE_AVAILABLE
+        or match_engine is None
+    ):
         raise RuntimeError(
-            "The C++ match_engine module could not be imported. "
-            f"Import error: {MATCH_ENGINE_IMPORT_ERROR}"
+            "The C++ match_engine module is unavailable. "
+            f"{MATCH_ENGINE_IMPORT_ERROR}"
         )
 
-    candidate_skills = (
-        candidate_data.get(
+    if not hasattr(
+        match_engine,
+        "calculate_match",
+    ):
+        raise RuntimeError(
+            "The match_engine module loaded, but it does not expose "
+            "calculate_match(). "
+            f"Loaded module: {MATCH_ENGINE_MODULE_PATH}"
+        )
+
+    candidate_skills = [
+        str(skill).strip()
+        for skill in candidate_data.get(
             "technical_skills",
             [],
         )
-    )
+        if str(skill).strip()
+    ]
 
-    required_skills = (
-        job_data.get(
+    required_skills = [
+        str(skill).strip()
+        for skill in job_data.get(
             "required_skills",
             [],
         )
-    )
+        if str(skill).strip()
+    ]
 
-    result = (
-        match_engine.calculate_match(
+    try:
+        result = match_engine.calculate_match(
             candidate_skills,
             required_skills,
         )
-    )
+
+    except Exception as error:
+        raise RuntimeError(
+            "The C++ match_engine loaded successfully but "
+            "calculate_match() failed. "
+            f"Module: {MATCH_ENGINE_MODULE_PATH}. "
+            f"Error: {error}"
+        ) from error
 
     return {
         "score": float(
@@ -552,6 +1174,71 @@ def calculate_cpp_match(
             result.missing_skills
         ),
     }
+
+
+
+def analyse_job_description_and_match(
+    candidate_data: dict,
+    job_description: str,
+) -> tuple[dict, dict]:
+    """
+    Run the existing AI job parser followed by the deterministic C++ matcher.
+
+    This function is shared by automatic shortlist analysis and the manual
+    'Analyse Job Description' button so both paths behave identically.
+    """
+
+    clean_description = str(
+        job_description or ""
+    ).strip()
+
+    if not clean_description:
+        raise ValueError(
+            "The job description is empty."
+        )
+
+    if len(
+        clean_description
+    ) < 200:
+        raise ValueError(
+            "The job description is too short for reliable analysis."
+        )
+
+    job_profile = create_job_profile(
+        clean_description
+    )
+
+    job_data = job_profile.model_dump()
+
+    match_data = calculate_cpp_match(
+        candidate_data,
+        job_data,
+    )
+
+    st.session_state[
+        "job_profile"
+    ] = job_data
+
+    st.session_state[
+        "job_description_text"
+    ] = clean_description
+
+    st.session_state[
+        "match_result"
+    ] = match_data
+
+    clear_application_outputs()
+
+    # clear_application_outputs() also clears match_result, therefore restore
+    # the newly calculated match after clearing stale generated documents.
+    st.session_state[
+        "match_result"
+    ] = match_data
+
+    return (
+        job_data,
+        match_data,
+    )
 
 
 # ------------------------------------------------------------
@@ -1290,6 +1977,10 @@ st.set_page_config(
 
 initialize_session_state()
 
+# Apply queued discovery -> analysis transfers before any widgets exist.
+apply_pending_discovered_job_transfer()
+restore_discovered_jobs_from_disk_once()
+
 st.title(
     "Career Copilot"
 )
@@ -1302,13 +1993,30 @@ st.warning(
     "AI-generated application content must be reviewed before use."
 )
 
-profile_tab, job_tab, application_tab, history_tab = st.tabs(
-    [
-        "👤 Candidate Profile",
-        "🔎 Job Analysis",
-        "📄 Application Package",
-        "📚 Application History",
-    ]
+requested_main_tab = st.session_state.pop(
+    "pending_main_tab",
+    None,
+)
+
+if requested_main_tab in MAIN_TAB_LABELS:
+    # Streamlit >= 1.55 supports keyed tabs. Because this assignment occurs
+    # before st.tabs() is created, it safely changes the selected tab.
+    st.session_state[
+        "main_navigation_tab"
+    ] = requested_main_tab
+
+elif (
+    "main_navigation_tab"
+    not in st.session_state
+):
+    st.session_state[
+        "main_navigation_tab"
+    ] = MAIN_TAB_PROFILE
+
+profile_tab, discovery_tab, job_tab, application_tab, history_tab = st.tabs(
+    MAIN_TAB_LABELS,
+    key="main_navigation_tab",
+    on_change="rerun",
 )
 
 
@@ -1867,18 +2575,176 @@ with job_tab:
             "Candidate profile loaded."
         )
 
+        if MATCH_ENGINE_AVAILABLE:
+            with st.expander(
+                "C++ match engine status",
+                expanded=False,
+            ):
+                st.success(
+                    "C++ match engine loaded."
+                )
+                if MATCH_ENGINE_MODULE_PATH:
+                    st.code(
+                        str(
+                            MATCH_ENGINE_MODULE_PATH
+                        )
+                    )
+        else:
+            st.error(
+                "C++ match engine is not available in the Python "
+                "environment running Streamlit."
+            )
+            with st.expander(
+                "Match engine diagnostic",
+                expanded=False,
+            ):
+                st.code(
+                    str(
+                        MATCH_ENGINE_IMPORT_ERROR
+                    )
+                )
+
+        selected_job = st.session_state.get(
+            "selected_discovered_job"
+        )
+
+        if isinstance(selected_job, dict):
+            selected_title = selected_job.get(
+                "title",
+                "Unknown role",
+            )
+            selected_company = selected_job.get(
+                "company",
+                "Unknown company",
+            )
+            selected_source = selected_job.get(
+                "source",
+                "Unknown source",
+            )
+
+            st.info(
+                "Loaded from Job Discovery: "
+                f"{selected_title} — {selected_company} "
+                f"({selected_source})"
+            )
+
+            company_job_url = str(
+                selected_job.get(
+                    "company_url",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            if company_job_url:
+                st.link_button(
+                    "Open Company Job Page",
+                    company_job_url,
+                )
+
+        transfer_notice = str(
+            st.session_state.get(
+                "job_transfer_notice",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if transfer_notice:
+            st.info(
+                transfer_notice
+            )
+
+        if "job_description_input" not in st.session_state:
+            st.session_state["job_description_input"] = (
+                st.session_state.get(
+                    "job_description_text",
+                    "",
+                )
+            )
+
         job_description = st.text_area(
             "Job description",
             height=400,
-            value=st.session_state.get(
-                "job_description_text",
-                "",
-            ),
             placeholder=(
                 "Paste the full job advertisement here..."
             ),
             key="job_description_input",
         )
+
+        st.session_state[
+            "job_description_text"
+        ] = job_description
+
+        if (
+            isinstance(selected_job, dict)
+            and len(job_description.strip()) < 200
+        ):
+            st.warning(
+                "This source returned only a short description/snippet. "
+                "Open the original vacancy and paste the complete job "
+                "advertisement before running detailed AI analysis."
+            )
+
+        auto_analyse_requested = bool(
+            st.session_state.get(
+                "auto_analyse_requested",
+                False,
+            )
+        )
+
+        if auto_analyse_requested:
+            # Clear before calling external services so a later Streamlit
+            # rerun cannot accidentally submit the same job twice.
+            st.session_state[
+                "auto_analyse_requested"
+            ] = False
+
+            clean_job_description = (
+                job_description.strip()
+            )
+
+            if len(
+                clean_job_description
+            ) < 200:
+                st.warning(
+                    "The detailed company description could not be loaded "
+                    "completely. Review the available text or paste the full "
+                    "vacancy before analysing it."
+                )
+
+            else:
+                st.info(
+                    "Job is being analysed. Career Copilot is extracting "
+                    "the requirements and running the C++ compatibility "
+                    "analysis now."
+                )
+
+                with st.spinner(
+                    "Analysing job description and compatibility..."
+                ):
+                    try:
+                        analyse_job_description_and_match(
+                            candidate_data,
+                            clean_job_description,
+                        )
+
+                        st.session_state[
+                            "job_transfer_notice"
+                        ] = (
+                            "Detailed job description loaded from the "
+                            "company page and analysed successfully."
+                        )
+
+                        st.success(
+                            "Job analysis completed successfully."
+                        )
+
+                    except Exception as error:
+                        show_error(
+                            "Automatic job analysis failed.",
+                            error,
+                        )
 
         if st.button(
             "Analyse Job Description",
@@ -1909,38 +2775,10 @@ with job_tab:
                 ):
 
                     try:
-                        job_profile = (
-                            create_job_profile(
-                                clean_job_description
-                            )
+                        analyse_job_description_and_match(
+                            candidate_data,
+                            clean_job_description,
                         )
-
-                        st.session_state[
-                            "job_profile"
-                        ] = (
-                            job_profile.model_dump()
-                        )
-
-                        st.session_state[
-                            "job_description_text"
-                        ] = clean_job_description
-
-                        clear_application_outputs()
-
-                        # Calculate the deterministic C++ match immediately
-                        # after the structured job profile is available.
-                        match_result = (
-                            calculate_cpp_match(
-                                candidate_data,
-                                st.session_state[
-                                    "job_profile"
-                                ],
-                            )
-                        )
-
-                        st.session_state[
-                            "match_result"
-                        ] = match_result
 
                         st.success(
                             "Job description analysed successfully."
@@ -2721,3 +3559,718 @@ with history_tab:
             use_container_width=True,
             hide_index=True,
         )
+
+# ============================================================
+# JOB DISCOVERY TAB
+# ============================================================
+
+with discovery_tab:
+
+    st.header(
+        "Job Discovery"
+    )
+
+    st.write(
+        "Discover and rank suitable jobs "
+        "from multiple German job sources."
+    )
+
+
+    candidate_data = (
+        st.session_state.get(
+            "candidate_profile"
+        )
+    )
+
+
+    if not isinstance(
+        candidate_data,
+        dict,
+    ):
+
+        st.info(
+            "Load or analyse a candidate "
+            "profile before discovering jobs."
+        )
+
+
+    else:
+
+        st.subheader(
+            "Search Criteria"
+        )
+
+
+        keywords = st.text_input(
+            "Job keywords",
+            value=(
+                "Embedded Software Engineer"
+            ),
+            help=(
+                "Examples: Embedded Software Engineer, "
+                "C++ Developer, Systems Engineer"
+            ),
+        )
+
+
+        available_cities = [
+            "Berlin",
+            "Munich",
+            "Hamburg",
+            "Frankfurt",
+            "Stuttgart",
+            "Cologne",
+            "Dusseldorf",
+        ]
+
+
+        selected_cities = (
+            st.multiselect(
+                "Search around these cities",
+                options=available_cities,
+                default=[
+                    "Munich",
+                    "Stuttgart",
+                    "Frankfurt",
+                ],
+            )
+        )
+
+
+        col1, col2 = st.columns(
+            2
+        )
+
+
+        with col1:
+
+            radius_km = st.slider(
+                (
+                    "Maximum distance "
+                    "from major city"
+                ),
+                min_value=10,
+                max_value=100,
+                value=50,
+                step=10,
+            )
+
+
+        with col2:
+
+            minimum_salary = (
+                st.number_input(
+                    (
+                        "Minimum target salary "
+                        "(€ gross/year)"
+                    ),
+                    min_value=50000,
+                    max_value=200000,
+                    value=80000,
+                    step=5000,
+                )
+            )
+
+
+        st.subheader(
+            "Company Preference"
+        )
+
+
+        company_col1, company_col2 = (
+            st.columns(
+                2
+            )
+        )
+
+
+        with company_col1:
+
+            prefer_medium = (
+                st.checkbox(
+                    "Medium companies",
+                    value=True,
+                )
+            )
+
+
+        with company_col2:
+
+            prefer_large = (
+                st.checkbox(
+                    "Large companies",
+                    value=True,
+                )
+            )
+
+
+        st.subheader(
+            "Job Sources"
+        )
+
+
+        source_col1, source_col2, source_col3 = (
+            st.columns(
+                3
+            )
+        )
+
+
+        with source_col1:
+
+            use_jooble = st.checkbox(
+                "Jooble",
+                value=True,
+            )
+
+
+        with source_col2:
+
+            use_arbeitnow = (
+                st.checkbox(
+                    "Arbeitnow",
+                    value=True,
+                )
+            )
+
+
+        with source_col3:
+
+            use_ba = st.checkbox(
+                "Bundesagentur",
+                value=True,
+            )
+
+
+        selected_sources = []
+
+
+        if use_jooble:
+
+            selected_sources.append(
+                JoobleSource()
+            )
+
+
+        if use_arbeitnow:
+
+            selected_sources.append(
+                ArbeitnowSource()
+            )
+
+
+        if use_ba:
+
+            selected_sources.append(
+                BAJobsSource()
+            )
+
+
+        st.divider()
+
+
+        discover_button = (
+            st.button(
+                "Discover Jobs",
+                type="primary",
+            )
+        )
+
+
+        if discover_button:
+
+            if not keywords.strip():
+
+                st.warning(
+                    "Enter at least one "
+                    "job keyword."
+                )
+
+
+            elif not selected_cities:
+
+                st.warning(
+                    "Select at least one "
+                    "German city."
+                )
+
+
+            elif not selected_sources:
+
+                st.warning(
+                    "Select at least one "
+                    "job source."
+                )
+
+
+            elif (
+                not prefer_medium
+                and not prefer_large
+            ):
+
+                st.warning(
+                    "Select at least one "
+                    "company-size preference."
+                )
+
+
+            else:
+
+                try:
+
+                    with st.spinner(
+                        (
+                            "Searching, filtering "
+                            "and ranking jobs..."
+                        )
+                    ):
+
+                        jobs = discover_jobs(
+                            sources=(
+                                selected_sources
+                            ),
+                            candidate_data=(
+                                candidate_data
+                            ),
+                            keywords=(
+                                keywords
+                            ),
+                            locations=(
+                                selected_cities
+                            ),
+                            radius_km=float(
+                                radius_km
+                            ),
+                            minimum_salary=float(
+                                minimum_salary
+                            ),
+                        )
+
+
+                        jobs_as_dicts = [
+                            job.model_dump()
+                            for job in jobs
+                        ]
+
+
+                        st.session_state[
+                            "discovered_jobs"
+                        ] = (
+                            jobs_as_dicts
+                        )
+
+
+                        save_discovered_jobs(
+                            jobs_as_dicts
+                        )
+
+
+                    st.success(
+                        (
+                            f"{len(jobs)} "
+                            "suitable jobs found."
+                        )
+                    )
+
+
+                except Exception as error:
+
+                    st.error(
+                        "Job discovery failed."
+                    )
+
+                    with st.expander(
+                        "Technical details"
+                    ):
+
+                        st.code(
+                            str(error)
+                        )
+
+
+        discovered_jobs = (
+            st.session_state.get(
+                "discovered_jobs",
+                [],
+            )
+        )
+
+
+        if discovered_jobs:
+
+            st.divider()
+
+            st.subheader(
+                "Recommended Jobs"
+            )
+
+
+            st.caption(
+                (
+                    f"{len(discovered_jobs)} "
+                    "ranked jobs available"
+                )
+            )
+
+
+            for index, job in enumerate(
+                discovered_jobs
+            ):
+
+                with st.container(
+                    border=True
+                ):
+
+                    st.subheader(
+                        job.get(
+                            "title",
+                            "Unknown Job",
+                        )
+                    )
+
+
+                    st.write(
+                        (
+                            "**Company:** "
+                            f"{job.get('company', 'Unknown')}"
+                        )
+                    )
+
+
+                    st.write(
+                        (
+                            "**Location:** "
+                            f"{job.get('location', 'Unknown')}"
+                        )
+                    )
+
+
+                    st.write(
+                        (
+                            "**Source:** "
+                            f"{job.get('source', 'Unknown')}"
+                        )
+                    )
+
+
+                    nearest_city = (
+                        job.get(
+                            "nearest_major_city",
+                            "Unknown",
+                        )
+                    )
+
+
+                    distance = (
+                        job.get(
+                            "distance_to_major_city_km"
+                        )
+                    )
+
+
+                    st.write(
+                        (
+                            "**Nearest major city:** "
+                            f"{nearest_city}"
+                        )
+                    )
+
+
+                    if distance is not None:
+
+                        st.write(
+                            (
+                                "**Distance:** "
+                                f"{distance:.1f} km"
+                            )
+                        )
+
+
+                    st.write(
+                        (
+                            "**Company size:** "
+                            f"{job.get('company_size', 'Unknown')}"
+                        )
+                    )
+
+
+                    published_min = (
+                        job.get(
+                            "published_salary_min"
+                        )
+                    )
+
+                    published_max = (
+                        job.get(
+                            "published_salary_max"
+                        )
+                    )
+
+                    estimated_min = (
+                        job.get(
+                            "estimated_salary_min"
+                        )
+                    )
+
+                    estimated_max = (
+                        job.get(
+                            "estimated_salary_max"
+                        )
+                    )
+
+
+                    if (
+                        published_min
+                        is not None
+                        or published_max
+                        is not None
+                    ):
+
+                        min_text = (
+                            f"€{published_min:,.0f}"
+                            if published_min
+                            is not None
+                            else "Unknown"
+                        )
+
+                        max_text = (
+                            f"€{published_max:,.0f}"
+                            if published_max
+                            is not None
+                            else "Unknown"
+                        )
+
+                        st.write(
+                            (
+                                "**Published salary:** "
+                                f"{min_text} – {max_text}"
+                            )
+                        )
+
+
+                    elif (
+                        estimated_min
+                        is not None
+                        or estimated_max
+                        is not None
+                    ):
+
+                        min_text = (
+                            f"€{estimated_min:,.0f}"
+                            if estimated_min
+                            is not None
+                            else "Unknown"
+                        )
+
+                        max_text = (
+                            f"€{estimated_max:,.0f}"
+                            if estimated_max
+                            is not None
+                            else "Unknown"
+                        )
+
+                        st.write(
+                            (
+                                "**Estimated salary:** "
+                                f"{min_text} – {max_text}"
+                            )
+                        )
+
+                        st.caption(
+                            (
+                                "Estimated salary — "
+                                "not employer-published."
+                            )
+                        )
+
+
+                    else:
+
+                        st.write(
+                            "**Salary:** Unknown"
+                        )
+
+
+                    initial_fit = float(
+                        job.get(
+                            "initial_fit_score",
+                            0.0,
+                        )
+                    )
+
+                    discovery_score = float(
+                        job.get(
+                            "discovery_score",
+                            0.0,
+                        )
+                    )
+
+
+                    score_col1, score_col2 = (
+                        st.columns(
+                            2
+                        )
+                    )
+
+
+                    with score_col1:
+
+                        st.metric(
+                            "Initial Fit",
+                            (
+                                f"{initial_fit:.1f}%"
+                            ),
+                        )
+
+
+                    with score_col2:
+
+                        st.metric(
+                            "Discovery Score",
+                            (
+                                f"{discovery_score:.1f}%"
+                            ),
+                        )
+
+
+                    button_col1, button_col2 = (
+                        st.columns(
+                            2
+                        )
+                    )
+
+
+                    job_url = job.get(
+                        "url",
+                        "",
+                    )
+
+
+                    with button_col1:
+
+                        if job_url:
+
+                            st.link_button(
+                                "Open Original Job",
+                                job_url,
+                                use_container_width=True,
+                            )
+
+
+                    with button_col2:
+
+                        if st.button(
+                            "Shortlist for Analysis",
+                            key=(
+                                "shortlist_discovered_"
+                                f"{index}"
+                            ),
+                            use_container_width=True,
+                        ):
+
+                            try:
+                                with st.spinner(
+                                    "Retrieving the detailed job description "
+                                    "from the company website..."
+                                ):
+                                    detail_scraper = (
+                                        CompanyJobDetailScraper()
+                                    )
+
+                                    detail_result = (
+                                        detail_scraper.fetch_for_job(
+                                            job
+                                        )
+                                    )
+
+                                enriched_job = dict(
+                                    job
+                                )
+
+                                detailed_description = str(
+                                    detail_result.description
+                                    or ""
+                                ).strip()
+
+                                if detailed_description:
+                                    enriched_job[
+                                        "description"
+                                    ] = detailed_description
+
+                                enriched_job[
+                                    "company_url"
+                                ] = (
+                                    detail_result.company_url
+                                )
+
+                                metadata = dict(
+                                    enriched_job.get(
+                                        "metadata",
+                                        {},
+                                    )
+                                    or {}
+                                )
+
+                                metadata[
+                                    "detail_fetch"
+                                ] = (
+                                    detail_result.to_dict()
+                                )
+
+                                enriched_job[
+                                    "metadata"
+                                ] = metadata
+
+                                update_discovered_job_in_state(
+                                    enriched_job
+                                )
+
+                                employer_detail_loaded = (
+                                    bool(
+                                        detail_result.company_url
+                                    )
+                                    and not detail_result.used_fallback
+                                    and len(
+                                        detailed_description
+                                    ) >= 200
+                                )
+
+                                if employer_detail_loaded:
+                                    notice = (
+                                        "Detailed job description retrieved "
+                                        "from the company website. "
+                                        "Job is being analysed now."
+                                    )
+                                else:
+                                    notice = (
+                                        "The company website could not provide "
+                                        "a complete machine-readable vacancy. "
+                                        "The best available description has "
+                                        "been loaded for review."
+                                    )
+
+                                    if detail_result.warning:
+                                        notice += (
+                                            " "
+                                            + detail_result.warning
+                                        )
+
+                                queue_discovered_job_for_analysis(
+                                    enriched_job,
+                                    auto_analyse=(
+                                        employer_detail_loaded
+                                    ),
+                                    notice=notice,
+                                )
+
+                                # On the next run the queued transfer happens
+                                # before widgets exist, and st.tabs(default=...)
+                                # opens Job Analysis automatically.
+                                st.rerun()
+
+                            except Exception as error:
+                                show_error(
+                                    "The job could not be shortlisted or "
+                                    "enriched from the company website.",
+                                    error,
+                                )

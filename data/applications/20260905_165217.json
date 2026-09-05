@@ -1,0 +1,396 @@
+{
+  "application_id": "20260905_165217",
+  "created_at": "2026-09-05T16:52:17.594242",
+  "company": "HENSOLDT",
+  "job_title": "Embedded Software-Entwickler",
+  "location": "Taufkirchen, Bayern",
+  "match_score": 9.090909090909092,
+  "matched_skills": [
+    "Python"
+  ],
+  "missing_skills": [
+    "Embedded Software Development",
+    "C/C++",
+    "Real-Time Data Processing",
+    "Board Support Package Development",
+    "Linux Software Development",
+    "Requirements Management Software (e.g. Rational DOORS)",
+    "Hardware/Software Integration",
+    "Verification and Validation",
+    "Test Procedure Creation",
+    "Technical Documentation"
+  ],
+  "status": "Prepared",
+  "candidate_profile": {
+    "full_name": "ARJUN VISWANATHAN",
+    "professional_title": "Embedded Systems and Simulation Engineer",
+    "professional_summary": "Embedded Systems and Simulation Engineer with experience in the development, integration, and validation of safety-critical real-time systems within automotive environments. Strong background in embedded software integration, AUTOSAR-based systems, model-based development, and real-time simulation using MATLAB/Simulink, dSPACE, CarMaker, and embedded C/C++ toolchains. Experienced in Software-in-the-Loop (SIL), Hardware-in-the-Loop (HIL), and Driver-in-the-Loop (DIL) validation, system integration, and verification activities across the complete V-model lifecycle within ASPICE and ISO 26262 (ASIL-D) environments. Proven experience in cross-functional technical coordination, rapid prototyping, and integration of complex mechatronic systems in agile interdisciplinary development teams.",
+    "technical_skills": [
+      "Embedded C/C++",
+      "AUTOSAR",
+      "Python",
+      "CAN",
+      "Ethernet",
+      "SPI",
+      "JTAG",
+      "Hardware-/Software-Integration",
+      "Real-Time Systems",
+      "Embedded Debugging",
+      "Lauterbach",
+      "Renesas E1",
+      "CMake",
+      "ISO 26262 (ASIL-D)",
+      "ASPICE",
+      "V-Model",
+      "Agile Development",
+      "Software Integration",
+      "Static Code Analysis (Astrée)",
+      "Verification & Validation",
+      "Jenkins",
+      "Conan",
+      "Artifactory",
+      "Git",
+      "JIRA",
+      "IBM DOORS",
+      "Systems Engineering",
+      "Model-Based Systems Engineering (MBSE)",
+      "Requirements Engineering",
+      "System Integration",
+      "Simulation & Modelling",
+      "Rapid Prototyping",
+      "SIL / HIL / DIL / PIL Environments",
+      "Driver-in-the-Loop Simulation",
+      "Virtual Validation Environments",
+      "MATLAB / Simulink",
+      "TargetLink",
+      "dSPACE Toolchain",
+      "Scalexio",
+      "MicroAutoBox II & III",
+      "IPG CarMaker",
+      "Aurelion",
+      "CANoe",
+      "CANape",
+      "SystemDesk",
+      "Enterprise Architect"
+    ],
+    "programming_languages": [
+      "C",
+      "C++",
+      "Python",
+      "assembly (asm)",
+      "mikroC"
+    ],
+    "tools": [
+      "MATLAB/Simulink",
+      "dSPACE Toolchain",
+      "CarMaker",
+      "Lauterbach",
+      "Renesas E1 debugger",
+      "Astrée",
+      "Aurelion",
+      "CANoe",
+      "CANape",
+      "SystemDesk",
+      "Enterprise Architect",
+      "Jenkins",
+      "Conan",
+      "Artifactory",
+      "Git",
+      "JIRA",
+      "IBM DOORS",
+      "PSpice"
+    ],
+    "methodologies": [
+      "V-Model",
+      "Agile Development",
+      "ASPICE",
+      "ISO 26262 (ASIL-D)",
+      "AI Developer/Vibe Coder",
+      "Model-Based Systems Engineering (MBSE)",
+      "Software Integration",
+      "Static Code Analysis",
+      "Verification & Validation",
+      "Rapid Prototyping"
+    ],
+    "industries": [
+      "Automotive",
+      "Embedded Systems",
+      "Simulation",
+      "Mechatronics",
+      "Control Engineering",
+      "Software Development"
+    ],
+    "employment_history": [
+      {
+        "company": "Robert Bosch Gmbh (Schwäbisch Gmünd)",
+        "role": "Systems & Embedded Software Engineer",
+        "start_date": "04/2022",
+        "end_date": "Present",
+        "responsibilities": [
+          "Developed and integrated safety-critical embedded software (steering functions) and simulation functions within AUTOSAR-based real-time systems following the V-model, ASPICE, and ISO 26262 (ASIL-D).",
+          "Worked across the complete system development lifecycle, including requirements analysis, architecture definition, implementation, integration, verification, and validation of real-time steering and simulation systems.",
+          "Acted as Team Architect for Steering Feel applications with focus on system-oriented architecture definition and model-based development of complex steering systems.",
+          "Developed and validated real-time embedded and simulation environments for advanced driver assistance and control system functionalities using MATLAB/Simulink, dSPACE, CarMaker, and embedded C/C++.",
+          "Commissioned and integrated closed-loop Driver-in-the-Loop (DIL) simulation platforms combining physical hardware components with virtual simulation models for functional verification and system validation.",
+          "Implemented and integrated custom real-time simulation models, including steering system, rack, and suspension models, to replicate vehicle hardware behavior in virtual environments.",
+          "Collaborated with system, software, and customer teams to derive technical realization concepts, KPI definitions, and platform strategies for steering systems.",
+          "Supported and conducted embedded C/C++ software integration, debugging, validation, and static code analysis (Astree) activities for safety-critical automotive control systems.",
+          "Integrated and deployed software packages within CI/CD environments using Jenkins, Conan, and Artifactory.",
+          "Extensively worked with MATLAB/Simulink, dSPACE toolchains, CarMaker, Astrée, Aurelion, CANoe/CANape, SystemDesk, Enterprise Architect, Lauterbach, and Renesas E1 debuggers."
+        ],
+        "achievements": [],
+        "technologies": [
+          "MATLAB/Simulink",
+          "dSPACE",
+          "CarMaker",
+          "embedded C/C++",
+          "AUTOSAR",
+          "Jenkins",
+          "Conan",
+          "Artifactory",
+          "Astrée",
+          "Aurelion",
+          "CANoe",
+          "CANape",
+          "SystemDesk",
+          "Enterprise Architect",
+          "Lauterbach",
+          "Renesas E1"
+        ]
+      },
+      {
+        "company": "Hochschule Rhein-Waal (Kleve)",
+        "role": "Research Associate – Control Engineering",
+        "start_date": "10/2018",
+        "end_date": "03/2022",
+        "responsibilities": [
+          "Led practical laboratory education in the field of control engineering and mechatronic systems.",
+          "Built and maintained research laboratories focused on mechatronic test benches and simulator platforms, including driving simulators and E-bike test systems.",
+          "Supported development and validation of torque, speed, and position controllers using AC servo motor HIL test benches in rapid prototyping environments with MATLAB/Simulink and dSPACE systems.",
+          "Supervised Bachelor’s and Master’s students in research and thesis projects related to control systems and mechatronics."
+        ],
+        "achievements": [],
+        "technologies": [
+          "MATLAB/Simulink",
+          "dSPACE"
+        ]
+      },
+      {
+        "company": "Hochschule Rhein-Waal (Kleve)",
+        "role": "Student Assistant",
+        "start_date": "2018",
+        "end_date": "2018",
+        "responsibilities": [
+          "Supported students as a tutor for practical training and exercises in Control Engineering."
+        ],
+        "achievements": [],
+        "technologies": [
+          ""
+        ]
+      },
+      {
+        "company": "Tata Consultancy Services Ltd. (India)",
+        "role": "Assistant Systems Engineer",
+        "start_date": "2016",
+        "end_date": "2017",
+        "responsibilities": [
+          "Performed software maintenance and troubleshooting for internal software systems.",
+          "Supported hardware infrastructure and server management activities."
+        ],
+        "achievements": [
+          "Received IPL-Kudos award during probation period."
+        ],
+        "technologies": [
+          ""
+        ]
+      },
+      {
+        "company": "MVM Industrial Training Institutions Pvt. Ltd. (India)",
+        "role": "Working Student – Electronics & Embedded Systems",
+        "start_date": "2015",
+        "end_date": "2015",
+        "responsibilities": [
+          "Assisted in electronics and microcontroller training programs.",
+          "Developed PCB schematics and gained practical experience in embedded electronics development.",
+          "Worked with asm, mikroC, and PSpice for embedded design and simulation."
+        ],
+        "achievements": [],
+        "technologies": [
+          "asm",
+          "mikroC",
+          "PSpice"
+        ]
+      },
+      {
+        "company": "Tata Consultancy Services Ltd. (India)",
+        "role": "Bachelor's Thesis Student",
+        "start_date": "2015",
+        "end_date": "2015",
+        "responsibilities": [
+          "Conducted research on starter motor contact bouncing phenomena in automotive systems and developed alternative solutions.",
+          "Created CAD, MATLAB/Simulink, and Amesim models for simulation and analysis.",
+          "Published research findings in a peer-reviewed paper."
+        ],
+        "achievements": [
+          "Published research paper: An Intelligent Solid State Switch for Starter Motor as an Alternate Solution to Solenoid with Contact Bouncing Issues. 2015."
+        ],
+        "technologies": [
+          "CAD",
+          "MATLAB/Simulink",
+          "Amesim"
+        ]
+      },
+      {
+        "company": "Tata Elxsi Ltd. (India)",
+        "role": "Working Student – Embedded Development",
+        "start_date": "2014",
+        "end_date": "2014",
+        "responsibilities": [
+          "Developed prototype motor control boards for BLDC and DC motors and created electronic schematics."
+        ],
+        "achievements": [],
+        "technologies": [
+          ""
+        ]
+      }
+    ],
+    "education": [
+      {
+        "institution": "Hochschule Rhein Waal",
+        "degree": "M.Sc.",
+        "field_of_study": "Mechanical Engineering",
+        "start_date": "",
+        "end_date": "2019"
+      },
+      {
+        "institution": "Manipal University",
+        "degree": "B.Tech.",
+        "field_of_study": "Mechatronics",
+        "start_date": "",
+        "end_date": "2015"
+      }
+    ],
+    "certifications": [
+      "dSPACE Real-Time Systems (Scalexio)",
+      "dSPACE Target Link Basic & Advanced",
+      "dSPACE Scalexio HIL"
+    ],
+    "spoken_languages": [],
+    "leadership_experience": [
+      "Led practical laboratory education in the field of control engineering and mechatronic systems.",
+      "Acted as Team Architect for Steering Feel applications with focus on system-oriented architecture definition and model-based development of complex steering systems."
+    ],
+    "achievements": [
+      "Published research paper: An Intelligent Solid State Switch for Starter Motor as an Alternate Solution to Solenoid with Contact Bouncing Issues. 2015.",
+      "IPL-Kudos award during probation period at Tata Consultancy Services Ltd.",
+      "Patent: Method for Ensuring the Variation of the Variable Steering Ratio in a Steering System  (2024). DE: DE202410207743 / CN: CN202511137928 / US: US20260048787"
+    ]
+  },
+  "job_profile": {
+    "job_title": "Embedded Software-Entwickler",
+    "company": "HENSOLDT",
+    "location": "Taufkirchen, Bayern",
+    "required_skills": [
+      "Embedded Software Development",
+      "C/C++",
+      "Python",
+      "Real-Time Data Processing",
+      "Board Support Package Development",
+      "Linux Software Development",
+      "Requirements Management Software (e.g. Rational DOORS)",
+      "Hardware/Software Integration",
+      "Verification and Validation",
+      "Test Procedure Creation",
+      "Technical Documentation"
+    ],
+    "preferred_skills": [],
+    "required_experience_years": 3.0,
+    "education_requirements": [
+      "Degree in Computer Science",
+      "Degree in Engineering",
+      "Comparable qualification"
+    ],
+    "language_requirements": [
+      "German (fluent)",
+      "English (proficient)"
+    ],
+    "responsibilities": [
+      "Develop embedded software in C/C++",
+      "Participate in all phases of the V-Model (requirements analysis, architecture, implementation, integration, test and verification)",
+      "Coordinate closely with system and software engineers",
+      "Perform hardware/software integration",
+      "Verify and validate the developed software",
+      "Create and execute test procedures",
+      "Create and maintain technical documentation"
+    ],
+    "industry": "Defense",
+    "seniority": "Mid-level"
+  },
+  "tailored_cv": {
+    "professional_title": "Embedded Systems and Simulation Engineer",
+    "professional_summary": "Experienced Embedded Systems and Simulation Engineer specialized in automotive safety-critical real-time systems with strong expertise in embedded C/C++ software development, integration, verification, and validation within V-Model processes. Proven ability to develop and integrate embedded software in AUTOSAR real-time environments, perform hardware/software integration, and conduct thorough verification including static code analysis. Skilled in requirements management using IBM DOORS, and experienced in cross-functional coordination and technical documentation. Adept at applying agile methodologies and ISO 26262 (ASIL-D) standards for safety-critical system development.",
+    "prioritized_skills": [
+      "Embedded C/C++",
+      "Hardware-/Software-Integration",
+      "Verification & Validation",
+      "Requirements Engineering",
+      "Python",
+      "Real-Time Systems",
+      "Software Integration",
+      "V-Model",
+      "ISO 26262 (ASIL-D)",
+      "ASPICE",
+      "Jenkins",
+      "Conan",
+      "Artifactory",
+      "Git",
+      "IBM DOORS",
+      "Technical Documentation",
+      "Agile Development"
+    ],
+    "experience": [
+      {
+        "company": "Robert Bosch Gmbh (Schwäbisch Gmünd)",
+        "job_title": "Systems & Embedded Software Engineer",
+        "bullets": [
+          "Developed and integrated safety-critical embedded software (steering functions) using embedded C/C++ within AUTOSAR-based real-time systems following V-model, ASPICE, and ISO 26262 (ASIL-D) standards.",
+          "Participated in all phases of the system development lifecycle including requirements analysis, architecture definition, implementation, integration, verification, and validation of real-time steering and simulation systems.",
+          "Conducted hardware/software integration and debugging using Lauterbach and Renesas E1 debuggers for safety-critical automotive control systems.",
+          "Managed verification and validation activities including static code analysis with Astrée and functional testing in SIL, HIL, and DIL environments.",
+          "Utilized IBM DOORS for requirements management and maintained comprehensive technical documentation to ensure traceability and compliance.",
+          "Developed and maintained continuous integration and deployment pipelines using Jenkins, Conan, and Artifactory.",
+          "Collaborated with system and software teams to define system architectures and ensure alignment with safety and performance requirements.",
+          "Designed and validated real-time simulation environments using MATLAB/Simulink, dSPACE, and CarMaker for advanced driver assistance functions."
+        ]
+      },
+      {
+        "company": "Hochschule Rhein-Waal (Kleve)",
+        "job_title": "Research Associate – Control Engineering",
+        "bullets": [
+          "Led laboratory education and development focusing on control engineering and mechatronic systems with emphasis on real-time simulation and rapid prototyping.",
+          "Developed and validated control algorithms using HIL setups with MATLAB/Simulink and dSPACE toolchains.",
+          "Supervised academic projects involving model-based development and system integration, reinforcing practical understanding of embedded systems."
+        ]
+      },
+      {
+        "company": "Tata Consultancy Services Ltd. (India)",
+        "job_title": "Assistant Systems Engineer",
+        "bullets": [
+          "Performed software maintenance and troubleshooting for internal systems ensuring reliability and performance.",
+          "Supported hardware infrastructure and server management, gaining foundational experience in cross-disciplinary system operations."
+        ]
+      }
+    ],
+    "education": [
+      "M.Sc. Mechanical Engineering, Hochschule Rhein Waal, 2019",
+      "B.Tech. Mechatronics, Manipal University, 2015"
+    ],
+    "certifications": [
+      "dSPACE Real-Time Systems (Scalexio)",
+      "dSPACE Target Link Basic & Advanced",
+      "dSPACE Scalexio HIL"
+    ]
+  },
+  "cover_letter": null,
+  "interview_preparation": null
+}
