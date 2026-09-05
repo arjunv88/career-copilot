@@ -114,5 +114,33 @@
   "london, germany": {
     "latitude": 49.537175,
     "longitude": 8.3542016
+  },
+  "berlin, germany": {
+    "latitude": 52.5173885,
+    "longitude": 13.3951309
+  },
+  "munich, bayern, germany": {
+    "latitude": 48.1371079,
+    "longitude": 11.5753822
+  },
+  "munich, germany": {
+    "latitude": 48.1371079,
+    "longitude": 11.5753822
+  },
+  "gilching, bayern, germany": {
+    "latitude": 48.1140289,
+    "longitude": 11.2921549
+  },
+  "united kingdom, germany": {
+    "latitude": 52.5156227,
+    "longitude": 13.3807336
+  },
+  "remote, germany": {
+    "latitude": 49.2186885,
+    "longitude": 7.1109673
+  },
+  "korntal-münchingen, germany": {
+    "latitude": 48.8432607,
+    "longitude": 9.1068611
   }
 }

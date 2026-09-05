@@ -42,3 +42,14 @@ desktop.ini
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+# Native Python extension artifacts
+*.pyd
+*.so
+
+# Local generated application/state data
+data/applications/*.json
+data/geography_cache.json
+
+# Local Office/PDF output
+*.tmp
+~$*.docx

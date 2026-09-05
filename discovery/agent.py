@@ -24,6 +24,7 @@ from discovery.filters import company_size_allowed
 from discovery.salary import salary_is_promising
 from discovery.ranking import (
     initial_candidate_fit_score,
+    initial_candidate_fit_breakdown,
     calculate_discovery_score,
 )
 
@@ -33,6 +34,7 @@ LOGGER = logging.getLogger(__name__)
 # Keeps the public discover_jobs() return type unchanged while still making
 # source failures inspectable by tests/UI code if desired.
 _LAST_DISCOVERY_ERRORS: list[str] = []
+_LAST_DISCOVERY_STATS: dict[str, dict[str, int]] = {}
 
 _COMPANY_SUFFIXES = {
     "ag",
@@ -48,9 +50,26 @@ _COMPANY_SUFFIXES = {
 
 def get_last_discovery_errors() -> list[str]:
     """Return source/job errors collected during the most recent run."""
+    return list(_LAST_DISCOVERY_ERRORS)
 
-    return list(
-        _LAST_DISCOVERY_ERRORS
+
+def get_last_discovery_stats() -> dict[str, dict[str, int]]:
+    """Return a copy of per-source discovery diagnostics for the latest run."""
+    return {name: dict(values) for name, values in _LAST_DISCOVERY_STATS.items()}
+
+
+def _source_stats(source_name: str) -> dict[str, int]:
+    return _LAST_DISCOVERY_STATS.setdefault(
+        source_name,
+        {
+            "retrieved": 0,
+            "approved": 0,
+            "rejected_geography": 0,
+            "rejected_company_size": 0,
+            "rejected_salary": 0,
+            "rejected_invalid": 0,
+            "errors": 0,
+        },
     )
 
 
@@ -552,6 +571,7 @@ def _collect_from_source(
     source_name = _source_name(
         source
     )
+    _source_stats(source_name)
 
     collected: list[Any] = []
 
@@ -580,17 +600,14 @@ def _collect_from_source(
                     location,
                 )
 
-                collected.extend(
-                    _coerce_source_jobs(
-                        result,
-                        source_name,
-                    )
-                )
+                valid_jobs = _coerce_source_jobs(result, source_name)
+                _source_stats(source_name)["retrieved"] += len(valid_jobs)
+                collected.extend(valid_jobs)
 
             except Exception as error:
+                _source_stats(source_name)["errors"] += 1
                 _record_error(
-                    f"{source_name} failed for location "
-                    f"'{location}': {error}"
+                    f"{source_name} failed for location '{location}': {error}"
                 )
 
         return collected
@@ -602,17 +619,13 @@ def _collect_from_source(
                 locations,
             )
 
-            collected.extend(
-                _coerce_source_jobs(
-                    result,
-                    source_name,
-                )
-            )
+            valid_jobs = _coerce_source_jobs(result, source_name)
+            _source_stats(source_name)["retrieved"] += len(valid_jobs)
+            collected.extend(valid_jobs)
 
         except Exception as error:
-            _record_error(
-                f"{source_name} failed: {error}"
-            )
+            _source_stats(source_name)["errors"] += 1
+            _record_error(f"{source_name} failed: {error}")
 
         return collected
 
@@ -622,6 +635,11 @@ def _collect_from_source(
     )
 
     return collected
+
+
+def _source_name_from_job(job: Any) -> str:
+    name = str(_job_attr(job, "source", "Unknown") or "Unknown").strip()
+    return name or "Unknown"
 
 
 def enrich_job(
@@ -659,33 +677,19 @@ def enrich_job(
         distance_km,
     )
 
-    initial_fit = (
-        initial_candidate_fit_score(
-            candidate_data,
-            str(
-                _job_attr(
-                    job,
-                    "title",
-                    "",
-                )
-                or ""
-            ),
-            str(
-                _job_attr(
-                    job,
-                    "description",
-                    "",
-                )
-                or ""
-            ),
-        )
+    fit_breakdown = initial_candidate_fit_breakdown(
+        candidate_data,
+        str(_job_attr(job, "title", "") or ""),
+        str(_job_attr(job, "description", "") or ""),
     )
+    initial_fit = float(fit_breakdown["score"])
+    _set_job_attr(job, "initial_fit_score", initial_fit)
 
-    _set_job_attr(
-        job,
-        "initial_fit_score",
-        initial_fit,
-    )
+    metadata = _job_attr(job, "metadata", {})
+    if not isinstance(metadata, dict):
+        metadata = {}
+    metadata["candidate_fit_breakdown"] = fit_breakdown
+    _set_job_attr(job, "metadata", metadata)
 
     discovery_score = (
         calculate_discovery_score(
@@ -849,6 +853,7 @@ def discover_jobs(
     """
 
     _LAST_DISCOVERY_ERRORS.clear()
+    _LAST_DISCOVERY_STATS.clear()
 
     (
         normalized_sources,
@@ -943,12 +948,8 @@ def discover_jobs(
             ):
                 continue
 
-            if not bool(
-                location_analysis.get(
-                    "within_radius",
-                    False,
-                )
-            ):
+            if not bool(location_analysis.get("within_radius", False)):
+                _source_stats(_source_name_from_job(job))["rejected_geography"] += 1
                 continue
 
             company_size = str(
@@ -972,6 +973,7 @@ def discover_jobs(
                 continue
 
             if not size_allowed:
+                _source_stats(_source_name_from_job(job))["rejected_company_size"] += 1
                 continue
 
             try:
@@ -1006,6 +1008,7 @@ def discover_jobs(
                 continue
 
             if not salary_allowed:
+                _source_stats(_source_name_from_job(job))["rejected_salary"] += 1
                 continue
 
             approved_jobs.append(
@@ -1017,6 +1020,7 @@ def discover_jobs(
                     minimum_salary=minimum_salary,
                 )
             )
+            _source_stats(_source_name_from_job(job))["approved"] += 1
 
         except Exception as error:
             # One malformed job must never abort all discovery results.

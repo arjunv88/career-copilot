@@ -48,7 +48,20 @@
     "CANoe",
     "CANape",
     "SystemDesk",
-    "Enterprise Architect"
+    "Enterprise Architect",
+    "ReactJS",
+    "TypeScript",
+    "FastAPI (Python)",
+    "SQLite",
+    "AI-Assisted Prompt Engineering",
+    "Rapid MVP Prototyping",
+    "Docker",
+    "E/E System Architecture",
+    "FMEA",
+    "FTA",
+    "Code Reviews",
+    "Object-Oriented Programming (OOP)",
+    "pybind11"
   ],
   "programming_languages": [
     "C",
@@ -75,7 +88,12 @@
     "Git",
     "JIRA",
     "IBM DOORS",
-    "PSpice"
+    "PSpice",
+    "ReactJS",
+    "TypeScript",
+    "FastAPI",
+    "SQLite",
+    "Docker"
   ],
   "methodologies": [
     "V-Model",
@@ -250,9 +268,14 @@
   "certifications": [
     "dSPACE Real-Time Systems (Scalexio)",
     "dSPACE Target Link Basic & Advanced",
-    "dSPACE Scalexio HIL"
+    "dSPACE Scalexio HIL",
+    "AI Essentials",
+    "AI for Vibe Coding - AI CERTs"
   ],
-  "spoken_languages": [],
+  "spoken_languages": [
+    "English - C2 (Native/Muttersprache)",
+    "Deutsch - C1 (Verhandlungssicher)"
+  ],
   "leadership_experience": [
     "Led practical laboratory education in the field of control engineering and mechatronic systems.",
     "Acted as Team Architect for Steering Feel applications with focus on system-oriented architecture definition and model-based development of complex steering systems."
@@ -261,5 +284,19 @@
     "Published research paper: An Intelligent Solid State Switch for Starter Motor as an Alternate Solution to Solenoid with Contact Bouncing Issues. 2015.",
     "IPL-Kudos award during probation period at Tata Consultancy Services Ltd.",
     "Patent: Method for Ensuring the Variation of the Variable Steering Ratio in a Steering System  (2024). DE: DE202410207743 / CN: CN202511137928 / US: US20260048787"
+  ],
+  "location": "Gaildorf",
+  "phone": "+49 176 5695 0651",
+  "email": "arjunv8@gmail.com",
+  "patents": [
+    "Method for Ensuring the Variation of the Variable Steering Ratio in a Steering System (2024). DE: DE202410207743 / CN: CN202511137928 / US: US20260048787"
+  ],
+  "publications": [
+    "Investigation of User Acceptance of an Active Accelerator Pedal for V2X Scenarios - VDI Mechatronics Conference (2022)",
+    "An Intelligent Solid State Switch for Starter Motor as an Alternate Solution to Solenoid with Contact Bouncing Issues. 2015.",
+    "Das intelligente E-Bike. 2019 (Rheinische Post)"
+  ],
+  "awards": [
+    "IPL-Kudos award during probation period at Tata Consultancy Services Ltd."
   ]
 }

@@ -13,11 +13,13 @@ import streamlit as st
 from docx import Document
 from dotenv import load_dotenv
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 from discovery.agent import (
     discover_jobs,
+    get_last_discovery_errors,
+    get_last_discovery_stats,
 )
 
 from storage.discovered_jobs import (
@@ -39,6 +41,11 @@ from scrapers.sources.ba_jobs import (
 
 from scrapers.details.company_job_details import (
     CompanyJobDetailScraper,
+)
+
+from documents.application_docs import (
+    create_cv_docx as build_cv_docx,
+    create_cover_letter_docx as build_cover_letter_docx,
 )
 
 # ------------------------------------------------------------
@@ -358,6 +365,10 @@ class CandidateProfile(BaseModel):
     professional_title: str
     professional_summary: str
 
+    location: str = ""
+    phone: str = ""
+    email: str = ""
+
     technical_skills: list[str]
     programming_languages: list[str]
     tools: list[str]
@@ -371,12 +382,16 @@ class CandidateProfile(BaseModel):
     spoken_languages: list[str]
     leadership_experience: list[str]
     achievements: list[str]
+    patents: list[str] = Field(default_factory=list)
+    publications: list[str] = Field(default_factory=list)
+    awards: list[str] = Field(default_factory=list)
 
 
 class JobProfile(BaseModel):
     job_title: str
     company: str
     location: str
+    job_id: str = ""
 
     required_skills: list[str]
     preferred_skills: list[str]
@@ -444,6 +459,8 @@ SESSION_DEFAULTS = {
     "job_transfer_notice": "",
     "pending_main_tab": None,
     "discovered_jobs_loaded_from_disk": False,
+    "discovery_stats": {},
+    "discovery_errors": [],
 }
 
 
@@ -1100,79 +1117,93 @@ Rules:
 # MATCHING
 # ------------------------------------------------------------
 
-def calculate_cpp_match(
-    candidate_data: dict,
-    job_data: dict,
-) -> dict:
-    """
-    Run the existing pybind11 C++ compatibility engine.
+def _candidate_match_inputs(candidate_data: dict) -> tuple[list[str], dict[str, float]]:
+    """Build C++ matcher evidence with source-aware confidence weights."""
+    weighted_fields = (
+        ("technical_skills", 1.00),
+        ("programming_languages", 1.00),
+        ("tools", 0.92),
+        ("methodologies", 0.88),
+        ("industries", 0.72),
+    )
+    skills: list[str] = []
+    weights: dict[str, float] = {}
 
-    No Python fallback is used: if the compiled extension is unavailable,
-    fail with a detailed diagnostic so the environment/build problem is
-    visible instead of silently changing matching behavior.
-    """
+    def add(value, weight):
+        text = str(value or "").strip()
+        if not text:
+            return
+        if text not in skills:
+            skills.append(text)
+        weights[text] = max(weights.get(text, 0.0), float(weight))
 
-    if (
-        not MATCH_ENGINE_AVAILABLE
-        or match_engine is None
-    ):
+    for field, weight in weighted_fields:
+        for item in candidate_data.get(field, []) or []:
+            add(item, weight)
+
+    # Technologies tied to actual employment are strong contextual evidence.
+    for entry in candidate_data.get("employment_history", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        for item in entry.get("technologies", []) or []:
+            add(item, 1.00)
+
+    return skills, weights
+
+
+def calculate_cpp_match(candidate_data: dict, job_data: dict) -> dict:
+    """Run the Week 6 weighted, explainable pybind11 C++ matcher."""
+    if not MATCH_ENGINE_AVAILABLE or match_engine is None:
         raise RuntimeError(
             "The C++ match_engine module is unavailable. "
             f"{MATCH_ENGINE_IMPORT_ERROR}"
         )
-
-    if not hasattr(
-        match_engine,
-        "calculate_match",
-    ):
+    if not hasattr(match_engine, "calculate_match"):
         raise RuntimeError(
-            "The match_engine module loaded, but it does not expose "
-            "calculate_match(). "
+            "The match_engine module loaded, but it does not expose calculate_match(). "
             f"Loaded module: {MATCH_ENGINE_MODULE_PATH}"
         )
 
-    candidate_skills = [
-        str(skill).strip()
-        for skill in candidate_data.get(
-            "technical_skills",
-            [],
-        )
-        if str(skill).strip()
-    ]
-
-    required_skills = [
-        str(skill).strip()
-        for skill in job_data.get(
-            "required_skills",
-            [],
-        )
-        if str(skill).strip()
-    ]
+    candidate_skills, candidate_weights = _candidate_match_inputs(candidate_data)
+    required_skills = [str(x).strip() for x in job_data.get("required_skills", []) or [] if str(x).strip()]
+    preferred_skills = [str(x).strip() for x in job_data.get("preferred_skills", []) or [] if str(x).strip()]
 
     try:
         result = match_engine.calculate_match(
             candidate_skills,
             required_skills,
+            preferred_skills,
+            candidate_weights,
         )
-
+    except TypeError as error:
+        raise RuntimeError(
+            "The loaded match_engine uses the older Week 5 interface. "
+            "Rebuild cpp/match_engine.cpp before running Week 6. "
+            f"Module: {MATCH_ENGINE_MODULE_PATH}. Error: {error}"
+        ) from error
     except Exception as error:
         raise RuntimeError(
-            "The C++ match_engine loaded successfully but "
-            "calculate_match() failed. "
-            f"Module: {MATCH_ENGINE_MODULE_PATH}. "
-            f"Error: {error}"
+            "The C++ match_engine loaded successfully but calculate_match() failed. "
+            f"Module: {MATCH_ENGINE_MODULE_PATH}. Error: {error}"
         ) from error
 
+    details = []
+    for item in getattr(result, "details", []) or []:
+        details.append({
+            "job_skill": str(item.job_skill),
+            "candidate_skill": str(item.candidate_skill),
+            "match_type": str(item.match_type),
+            "strength": float(item.strength),
+            "requirement_weight": float(item.requirement_weight),
+        })
+
     return {
-        "score": float(
-            result.score
-        ),
-        "matched_skills": list(
-            result.matched_skills
-        ),
-        "missing_skills": list(
-            result.missing_skills
-        ),
+        "score": float(result.score),
+        "matched_skills": list(result.matched_skills),
+        "related_skills": list(getattr(result, "related_skills", [])),
+        "preferred_matches": list(getattr(result, "preferred_matches", [])),
+        "missing_skills": list(result.missing_skills),
+        "details": details,
     }
 
 
@@ -1254,32 +1285,32 @@ def create_tailored_cv(
     client = get_openai_client()
 
     system_prompt = """
-You are the CV tailoring component of Career Copilot.
+You are the senior CV-tailoring component of Career Copilot.
 
-Create a job-specific CV using ONLY facts contained in the approved
-candidate profile.
+Produce concise, application-ready content for the supplied role using ONLY
+facts in the approved candidate profile. The output will be placed into the
+candidate's established two-page CV design, so content quality and restraint
+matter.
 
-You may:
-- prioritize relevant experience
-- reorder skills according to job relevance
-- rewrite existing experience more clearly
-- shorten less relevant content
-- emphasize evidence that supports the job requirements
-
-You must NEVER:
-- invent skills
-- invent employers
-- invent projects
-- invent responsibilities
-- invent certifications
-- invent achievements
-- claim experience merely because the job requires it
-
-The approved candidate profile is the factual source of truth.
-
-The compatibility analysis is guidance only.
-If a skill appears in the missing-skills list, do not claim that the
-candidate has that skill.
+Rules:
+1. Never invent or upgrade skills, employers, projects, responsibilities,
+   certifications, achievements, dates or proficiency.
+2. Preserve every employer/role from the approved profile and keep the same
+   chronological order. You may condense older/less relevant roles, but do not
+   fabricate or delete career history.
+3. Rewrite bullets only when doing so improves relevance or clarity while
+   preserving their factual meaning. Prefer concrete engineering actions,
+   systems, tools, scope and outcomes that are explicitly supported.
+4. Prioritize skills that genuinely overlap with required/preferred job skills.
+   Missing skills must never be presented as candidate capabilities.
+5. The professional summary should be 70-110 words, job-specific, factual and
+   technically dense. Avoid generic phrases such as 'highly motivated',
+   'passionate professional', 'dynamic team player', or unsupported superlatives.
+6. Experience bullets should normally be one sentence each and avoid repeating
+   the same claim across multiple bullets.
+7. Prioritized skills must use terminology supported by the candidate profile.
+8. Education and certifications must remain factual.
+9. Do not write first-person prose in the CV.
 
 Return the tailored CV according to the provided schema.
 """
@@ -1336,21 +1367,33 @@ def create_cover_letter(
     client = get_openai_client()
 
     system_prompt = """
-You are the cover-letter generation component of Career Copilot.
+You are the senior cover-letter writer for Career Copilot.
 
-Create a concise and professional cover letter for the supplied job.
+Write exactly THREE polished body paragraphs for the supplied job. The DOCX
+template separately adds the candidate header, recipient, subject, salutation
+and signature, so DO NOT include those elements in your response.
+
+Paragraph 1 - fit and evidence:
+- Open with the strongest factual reason the candidate fits this specific role.
+- Connect 2-4 job requirements to concrete candidate experience.
+
+Paragraph 2 - contribution and gaps:
+- Explain what the candidate can contribute from the outset.
+- If an important domain gap exists, acknowledge it briefly and confidently
+  without apologizing or claiming experience that is not present.
+
+Paragraph 3 - motivation and close:
+- State a role/company-specific reason for interest when supported by the job
+  information, then close with a concise invitation to discuss fit.
 
 Rules:
-1. Use only facts supported by the approved candidate profile.
-2. Never invent experience, skills, achievements, certifications
-   or responsibilities.
-3. Focus on the strongest genuine overlap between the candidate
-   and the job requirements.
-4. Use the compatibility analysis to identify matched strengths.
-5. Do not claim missing skills.
-6. Avoid generic wording where possible.
-7. Keep the letter approximately 300-450 words.
-8. Make the tone professional and confident.
+1. Use only facts in the approved candidate profile and structured job profile.
+2. Never invent skills, achievements, metrics, certifications or company facts.
+3. Do not claim missing skills.
+4. Avoid generic AI phrases, excessive adjectives, flattery and repetition.
+5. Prefer specific technical evidence over broad claims.
+6. Target roughly 260-360 words total.
+7. Return only the three body paragraphs separated by blank lines.
 """
 
     user_content = f"""
@@ -1478,148 +1521,26 @@ Generate the interview-preparation package.
 
 def create_cv_docx(
     cv_data: dict,
+    candidate_data: dict,
 ) -> bytes:
-
-    document = Document()
-
-    document.add_heading(
-        cv_data.get(
-            "professional_title",
-            "Tailored CV",
-        ),
-        level=0,
+    """Generate the Week 6 CV using the supplied reference design."""
+    return build_cv_docx(
+        cv_data=cv_data,
+        candidate_data=candidate_data,
     )
-
-    document.add_heading(
-        "Professional Summary",
-        level=1,
-    )
-
-    document.add_paragraph(
-        cv_data.get(
-            "professional_summary",
-            "",
-        )
-    )
-
-    document.add_heading(
-        "Key Skills",
-        level=1,
-    )
-
-    for skill in cv_data.get(
-        "prioritized_skills",
-        [],
-    ):
-        document.add_paragraph(
-            str(skill),
-            style="List Bullet",
-        )
-
-    document.add_heading(
-        "Professional Experience",
-        level=1,
-    )
-
-    for experience in cv_data.get(
-        "experience",
-        [],
-    ):
-
-        if not isinstance(
-            experience,
-            dict,
-        ):
-            continue
-
-        document.add_heading(
-            (
-                experience.get(
-                    "job_title",
-                    "",
-                )
-                + " — "
-                + experience.get(
-                    "company",
-                    "",
-                )
-            ),
-            level=2,
-        )
-
-        for bullet in experience.get(
-            "bullets",
-            [],
-        ):
-            document.add_paragraph(
-                str(bullet),
-                style="List Bullet",
-            )
-
-    document.add_heading(
-        "Education",
-        level=1,
-    )
-
-    for item in cv_data.get(
-        "education",
-        [],
-    ):
-        document.add_paragraph(
-            str(item),
-            style="List Bullet",
-        )
-
-    document.add_heading(
-        "Certifications",
-        level=1,
-    )
-
-    for item in cv_data.get(
-        "certifications",
-        [],
-    ):
-        document.add_paragraph(
-            str(item),
-            style="List Bullet",
-        )
-
-    buffer = BytesIO()
-    document.save(
-        buffer
-    )
-    buffer.seek(0)
-
-    return buffer.getvalue()
 
 
 def create_cover_letter_docx(
     cover_letter: str,
+    candidate_data: dict,
+    job_data: dict,
 ) -> bytes:
-
-    document = Document()
-
-    document.add_heading(
-        "Cover Letter",
-        level=0,
+    """Generate the Week 6 LOM using the supplied reference design."""
+    return build_cover_letter_docx(
+        cover_letter=cover_letter,
+        candidate_data=candidate_data,
+        job_data=job_data,
     )
-
-    for paragraph in cover_letter.split(
-        "\n"
-    ):
-
-        if paragraph.strip():
-            document.add_paragraph(
-                paragraph.strip()
-            )
-
-    buffer = BytesIO()
-    document.save(
-        buffer
-    )
-    buffer.seek(0)
-
-    return buffer.getvalue()
 
 
 def create_interview_docx(
@@ -2874,95 +2795,72 @@ with job_tab:
                 )
             )
 
-            matched_skills = (
-                match_data.get(
-                    "matched_skills",
-                    [],
-                )
-            )
+            matched_skills = match_data.get("matched_skills", [])
+            related_skills = match_data.get("related_skills", [])
+            preferred_matches = match_data.get("preferred_matches", [])
+            missing_skills = match_data.get("missing_skills", [])
 
-            missing_skills = (
-                match_data.get(
-                    "missing_skills",
-                    [],
-                )
-            )
-
-            metric_col1, metric_col2, metric_col3 = st.columns(
-                3
-            )
-
+            metric_col1, metric_col2, metric_col3, metric_col4 = st.columns(4)
             with metric_col1:
-                st.metric(
-                    "Compatibility",
-                    f"{score:.1f}%",
-                )
-
+                st.metric("Compatibility", f"{score:.1f}%")
             with metric_col2:
-                st.metric(
-                    "Matched Skills",
-                    len(
-                        matched_skills
-                    ),
-                )
-
+                st.metric("Strong Matches", len(matched_skills))
             with metric_col3:
-                st.metric(
-                    "Missing Skills",
-                    len(
-                        missing_skills
-                    ),
-                )
+                st.metric("Related Matches", len(related_skills))
+            with metric_col4:
+                st.metric("Missing Required", len(missing_skills))
 
-            normalized_score = min(
-                max(
-                    score / 100,
-                    0,
-                ),
-                1,
+            st.progress(min(max(score / 100, 0), 1))
+            st.caption(
+                "Week 6 matching recognizes exact/alias evidence, conservative "
+                "related-skill evidence and lower-weight preferred requirements."
             )
 
-            st.progress(
-                normalized_score
-            )
-
-            skill_col1, skill_col2 = st.columns(
-                2
-            )
-
+            skill_col1, skill_col2, skill_col3 = st.columns(3)
             with skill_col1:
-
-                st.markdown(
-                    "### Matched Skills"
-                )
-
+                st.markdown("### Strong Matches")
                 if matched_skills:
                     for skill in matched_skills:
-                        st.write(
-                            f"✅ {skill}"
-                        )
-
+                        st.write(f"✅ {skill}")
                 else:
-                    st.write(
-                        "No exact skill matches found."
-                    )
+                    st.write("No strong required-skill matches found.")
+                if preferred_matches:
+                    st.markdown("**Preferred matches**")
+                    for skill in preferred_matches:
+                        st.write(f"✓ {skill}")
 
             with skill_col2:
+                st.markdown("### Related Evidence")
+                if related_skills:
+                    for skill in related_skills:
+                        st.write(f"↔️ {skill}")
+                else:
+                    st.write("No related-skill matches were needed.")
 
-                st.markdown(
-                    "### Missing Skills"
-                )
-
+            with skill_col3:
+                st.markdown("### Missing Required Skills")
                 if missing_skills:
                     for skill in missing_skills:
-                        st.write(
-                            f"⚠️ {skill}"
-                        )
-
+                        st.write(f"⚠️ {skill}")
                 else:
-                    st.write(
-                        "No missing required skills."
-                    )
+                    st.write("No missing required skills.")
+
+            details = match_data.get("details", [])
+            if details:
+                with st.expander("Compatibility score explanation"):
+                    detail_rows = []
+                    for item in details:
+                        if not isinstance(item, dict):
+                            continue
+                        detail_rows.append({
+                            "Job skill": item.get("job_skill", ""),
+                            "Candidate evidence": item.get("candidate_skill", "") or "—",
+                            "Match type": item.get("match_type", "none"),
+                            "Strength": f"{float(item.get('strength', 0.0)) * 100:.0f}%",
+                            "Requirement weight": item.get("requirement_weight", 1.0),
+                        })
+                    if detail_rows:
+                        st.dataframe(detail_rows, use_container_width=True, hide_index=True)
 
 
 # ============================================================
@@ -3041,6 +2939,79 @@ with application_tab:
         st.caption(
             f"Target: {target_role} — {target_company}"
         )
+
+        st.subheader("Complete Application Package")
+        st.caption(
+            "Generate the tailored CV, cover letter and interview preparation "
+            "in one controlled run. Individual components can still be regenerated below."
+        )
+
+        if st.button(
+            "Generate Complete Application Package",
+            type="primary",
+            use_container_width=True,
+            key="generate_complete_application_package",
+        ):
+            # Clear stale package content first so a failed new run can never be
+            # confused with documents generated for another vacancy.
+            st.session_state["tailored_cv"] = None
+            st.session_state["cover_letter"] = None
+            st.session_state["interview_preparation"] = None
+
+            try:
+                with st.status(
+                    "Generating complete application package...",
+                    expanded=True,
+                ) as package_status:
+                    st.write("1/3 Tailoring CV to the selected role...")
+                    tailored_cv = create_tailored_cv(
+                        candidate_data, job_data, match_data
+                    )
+                    st.session_state["tailored_cv"] = tailored_cv.model_dump()
+
+                    st.write("2/3 Writing job-specific cover letter...")
+                    cover_letter = create_cover_letter(
+                        candidate_data, job_data, match_data
+                    )
+                    st.session_state["cover_letter"] = cover_letter
+
+                    st.write("3/3 Preparing interview questions...")
+                    interview_prep = create_interview_preparation(
+                        candidate_data, job_data, match_data
+                    )
+                    st.session_state[
+                        "interview_preparation"
+                    ] = interview_prep.model_dump()
+
+                    package_status.update(
+                        label="Complete application package generated.",
+                        state="complete",
+                        expanded=False,
+                    )
+                st.rerun()
+            except Exception as error:
+                show_error(
+                    "Complete application package generation failed. "
+                    "Any partially generated content has been retained for inspection.",
+                    error,
+                )
+
+        status_col1, status_col2, status_col3 = st.columns(3)
+        with status_col1:
+            if isinstance(st.session_state.get("tailored_cv"), dict):
+                st.success("CV Ready")
+            else:
+                st.info("CV Not Generated")
+        with status_col2:
+            if isinstance(st.session_state.get("cover_letter"), str):
+                st.success("Cover Letter Ready")
+            else:
+                st.info("Cover Letter Not Generated")
+        with status_col3:
+            if isinstance(st.session_state.get("interview_preparation"), dict):
+                st.success("Interview Prep Ready")
+            else:
+                st.info("Interview Prep Not Generated")
 
         cv_tab, cover_tab, interview_tab = st.tabs(
             [
@@ -3196,7 +3167,8 @@ with application_tab:
                     create_cv_docx(
                         st.session_state[
                             "tailored_cv"
-                        ]
+                        ],
+                        candidate_data,
                     )
                 )
 
@@ -3307,7 +3279,9 @@ with application_tab:
 
                 cover_docx = (
                     create_cover_letter_docx(
-                        edited_cover_letter
+                        edited_cover_letter,
+                        candidate_data,
+                        job_data,
                     )
                 )
 
@@ -3864,6 +3838,13 @@ with discovery_tab:
                             jobs_as_dicts
                         )
 
+                        st.session_state["discovery_stats"] = (
+                            get_last_discovery_stats()
+                        )
+                        st.session_state["discovery_errors"] = (
+                            get_last_discovery_errors()
+                        )
+
 
                     st.success(
                         (
@@ -3887,6 +3868,32 @@ with discovery_tab:
                             str(error)
                         )
 
+
+        discovery_stats = st.session_state.get("discovery_stats", {})
+        discovery_errors = st.session_state.get("discovery_errors", [])
+
+        if isinstance(discovery_stats, dict) and discovery_stats:
+            st.subheader("Discovery Source Health")
+            stat_columns = st.columns(max(1, min(len(discovery_stats), 3)))
+            for idx, (source_name, stats) in enumerate(discovery_stats.items()):
+                with stat_columns[idx % len(stat_columns)]:
+                    st.markdown(f"**{source_name}**")
+                    st.write(f"Retrieved: {int(stats.get('retrieved', 0))}")
+                    st.write(f"Approved: {int(stats.get('approved', 0))}")
+                    st.write(
+                        "Filtered: "
+                        f"{int(stats.get('rejected_geography', 0)) + int(stats.get('rejected_company_size', 0)) + int(stats.get('rejected_salary', 0))}"
+                    )
+                    error_count = int(stats.get("errors", 0))
+                    if error_count:
+                        st.warning(f"Errors: {error_count}")
+                    else:
+                        st.caption("Errors: 0")
+
+            if discovery_errors:
+                with st.expander("Discovery diagnostics"):
+                    for message in discovery_errors:
+                        st.write(f"- {message}")
 
         discovered_jobs = (
             st.session_state.get(
@@ -4130,6 +4137,18 @@ with discovery_tab:
                             (
                                 f"{discovery_score:.1f}%"
                             ),
+                        )
+
+                    fit_breakdown = (job.get("metadata", {}) or {}).get(
+                        "candidate_fit_breakdown", {}
+                    )
+                    if isinstance(fit_breakdown, dict) and fit_breakdown:
+                        st.caption(
+                            "Initial fit: "
+                            f"Technical {float(fit_breakdown.get('technical', 0)):.0f} | "
+                            f"Title {float(fit_breakdown.get('title', 0)):.0f} | "
+                            f"Seniority {float(fit_breakdown.get('seniority', 0)):.0f} | "
+                            f"Domain {float(fit_breakdown.get('domain', 0)):.0f}"
                         )
 
 
