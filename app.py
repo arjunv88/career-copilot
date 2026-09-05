@@ -1,5 +1,8 @@
 import json
 import os
+import sys
+import importlib
+import importlib.util
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
@@ -39,19 +42,247 @@ from scrapers.details.company_job_details import (
 )
 
 # ------------------------------------------------------------
-# OPTIONAL C++ MODULE IMPORT
+# C++ MATCH ENGINE IMPORT
 # ------------------------------------------------------------
 
-try:
-    import match_engine
+MATCH_ENGINE_AVAILABLE = False
+MATCH_ENGINE_IMPORT_ERROR = None
+MATCH_ENGINE_MODULE_PATH = None
 
-    MATCH_ENGINE_AVAILABLE = True
-    MATCH_ENGINE_IMPORT_ERROR = None
 
-except Exception as import_error:
-    match_engine = None
+def _candidate_match_engine_directories(
+    project_root: Path,
+) -> list[Path]:
+    """
+    Return likely directories containing the compiled pybind11 extension.
+
+    This supports the common CMake layouts used during Career Copilot
+    development, including:
+        project/
+        project/build/
+        project/build/Release/
+        project/cpp/build/
+        project/cpp/build/Release/
+
+    It also includes the current working directory because Streamlit may be
+    started from a different folder than the file itself.
+    """
+
+    candidates = [
+        project_root,
+        project_root / "build",
+        project_root / "build" / "Release",
+        project_root / "build" / "Debug",
+        project_root / "cpp",
+        project_root / "cpp" / "build",
+        project_root / "cpp" / "build" / "Release",
+        project_root / "cpp" / "build" / "Debug",
+        Path.cwd(),
+        Path.cwd() / "build",
+        Path.cwd() / "build" / "Release",
+        Path.cwd() / "build" / "Debug",
+    ]
+
+    unique = []
+    seen = set()
+
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except Exception:
+            resolved = candidate
+
+        key = str(resolved).lower()
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        if resolved.exists():
+            unique.append(resolved)
+
+    return unique
+
+
+def _find_compiled_match_engine(
+    search_directories: list[Path],
+) -> Path | None:
+    """
+    Search a bounded set of project/build directories for the compiled
+    extension.
+
+    Windows pybind11 output normally looks like:
+        match_engine.cp312-win_amd64.pyd
+
+    Linux/macOS builds normally use .so.
+    """
+
+    patterns = (
+        "match_engine*.pyd",
+        "match_engine*.so",
+        "match_engine*.dll",
+        "match_engine*.dylib",
+    )
+
+    for directory in search_directories:
+        for pattern in patterns:
+            try:
+                matches = sorted(
+                    directory.glob(pattern)
+                )
+            except Exception:
+                matches = []
+
+            if matches:
+                return matches[0]
+
+    # One-level recursive search under build-style directories only.
+    for directory in search_directories:
+        if "build" not in directory.name.lower():
+            continue
+
+        for pattern in patterns:
+            try:
+                matches = sorted(
+                    directory.rglob(pattern)
+                )
+            except Exception:
+                matches = []
+
+            if matches:
+                return matches[0]
+
+    return None
+
+
+def load_match_engine():
+    """
+    Load the pybind11 C++ extension robustly.
+
+    First try the normal Python import. If that fails, search the common CMake
+    build locations and add the extension's directory to sys.path before
+    importing again.
+
+    This keeps the existing C++ implementation as the source of truth; there
+    is deliberately no silent Python compatibility fallback.
+    """
+
+    global MATCH_ENGINE_AVAILABLE
+    global MATCH_ENGINE_IMPORT_ERROR
+    global MATCH_ENGINE_MODULE_PATH
+
+    first_error = None
+
+    try:
+        module = importlib.import_module(
+            "match_engine"
+        )
+
+        MATCH_ENGINE_AVAILABLE = True
+        MATCH_ENGINE_IMPORT_ERROR = None
+        MATCH_ENGINE_MODULE_PATH = getattr(
+            module,
+            "__file__",
+            None,
+        )
+
+        return module
+
+    except Exception as error:
+        first_error = error
+
+    project_root = Path(
+        __file__
+    ).resolve().parent
+
+    search_directories = (
+        _candidate_match_engine_directories(
+            project_root
+        )
+    )
+
+    extension_path = (
+        _find_compiled_match_engine(
+            search_directories
+        )
+    )
+
+    if extension_path is not None:
+        extension_directory = str(
+            extension_path.parent
+        )
+
+        if (
+            extension_directory
+            not in sys.path
+        ):
+            sys.path.insert(
+                0,
+                extension_directory,
+            )
+
+        importlib.invalidate_caches()
+
+        try:
+            # Remove a failed/partial import if one exists.
+            sys.modules.pop(
+                "match_engine",
+                None,
+            )
+
+            module = importlib.import_module(
+                "match_engine"
+            )
+
+            MATCH_ENGINE_AVAILABLE = True
+            MATCH_ENGINE_IMPORT_ERROR = None
+            MATCH_ENGINE_MODULE_PATH = getattr(
+                module,
+                "__file__",
+                str(extension_path),
+            )
+
+            return module
+
+        except Exception as second_error:
+            MATCH_ENGINE_IMPORT_ERROR = (
+                "The compiled match_engine extension was found at "
+                f"'{extension_path}', but Python could not load it. "
+                f"Initial import error: {first_error}. "
+                f"Load error: {second_error}. "
+                "This usually means the extension was built for a different "
+                "Python version/architecture or one of its runtime DLLs is "
+                "missing."
+            )
+
+            MATCH_ENGINE_AVAILABLE = False
+            MATCH_ENGINE_MODULE_PATH = str(
+                extension_path
+            )
+
+            return None
+
+    searched = ", ".join(
+        str(path)
+        for path in search_directories
+    )
+
+    MATCH_ENGINE_IMPORT_ERROR = (
+        "No compiled match_engine extension could be imported or found. "
+        f"Initial import error: {first_error}. "
+        f"Searched: {searched}. "
+        "Build the pybind11 target for the SAME Python environment used to "
+        "run Streamlit, then restart the app."
+    )
+
     MATCH_ENGINE_AVAILABLE = False
-    MATCH_ENGINE_IMPORT_ERROR = str(import_error)
+    MATCH_ENGINE_MODULE_PATH = None
+
+    return None
+
+
+match_engine = load_match_engine()
 
 
 # ------------------------------------------------------------
@@ -873,33 +1104,64 @@ def calculate_cpp_match(
     candidate_data: dict,
     job_data: dict,
 ) -> dict:
+    """
+    Run the existing pybind11 C++ compatibility engine.
 
-    if not MATCH_ENGINE_AVAILABLE:
+    No Python fallback is used: if the compiled extension is unavailable,
+    fail with a detailed diagnostic so the environment/build problem is
+    visible instead of silently changing matching behavior.
+    """
+
+    if (
+        not MATCH_ENGINE_AVAILABLE
+        or match_engine is None
+    ):
         raise RuntimeError(
-            "The C++ match_engine module could not be imported. "
-            f"Import error: {MATCH_ENGINE_IMPORT_ERROR}"
+            "The C++ match_engine module is unavailable. "
+            f"{MATCH_ENGINE_IMPORT_ERROR}"
         )
 
-    candidate_skills = (
-        candidate_data.get(
+    if not hasattr(
+        match_engine,
+        "calculate_match",
+    ):
+        raise RuntimeError(
+            "The match_engine module loaded, but it does not expose "
+            "calculate_match(). "
+            f"Loaded module: {MATCH_ENGINE_MODULE_PATH}"
+        )
+
+    candidate_skills = [
+        str(skill).strip()
+        for skill in candidate_data.get(
             "technical_skills",
             [],
         )
-    )
+        if str(skill).strip()
+    ]
 
-    required_skills = (
-        job_data.get(
+    required_skills = [
+        str(skill).strip()
+        for skill in job_data.get(
             "required_skills",
             [],
         )
-    )
+        if str(skill).strip()
+    ]
 
-    result = (
-        match_engine.calculate_match(
+    try:
+        result = match_engine.calculate_match(
             candidate_skills,
             required_skills,
         )
-    )
+
+    except Exception as error:
+        raise RuntimeError(
+            "The C++ match_engine loaded successfully but "
+            "calculate_match() failed. "
+            f"Module: {MATCH_ENGINE_MODULE_PATH}. "
+            f"Error: {error}"
+        ) from error
 
     return {
         "score": float(
@@ -2312,6 +2574,35 @@ with job_tab:
         st.success(
             "Candidate profile loaded."
         )
+
+        if MATCH_ENGINE_AVAILABLE:
+            with st.expander(
+                "C++ match engine status",
+                expanded=False,
+            ):
+                st.success(
+                    "C++ match engine loaded."
+                )
+                if MATCH_ENGINE_MODULE_PATH:
+                    st.code(
+                        str(
+                            MATCH_ENGINE_MODULE_PATH
+                        )
+                    )
+        else:
+            st.error(
+                "C++ match engine is not available in the Python "
+                "environment running Streamlit."
+            )
+            with st.expander(
+                "Match engine diagnostic",
+                expanded=False,
+            ):
+                st.code(
+                    str(
+                        MATCH_ENGINE_IMPORT_ERROR
+                    )
+                )
 
         selected_job = st.session_state.get(
             "selected_discovered_job"
